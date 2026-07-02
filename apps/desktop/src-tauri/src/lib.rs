@@ -701,13 +701,13 @@ fn pixelate_region(image: &mut RgbaImage, start: &AnnotationPoint, end: &Annotat
                     count += 1;
                 }
             }
-            if count > 0 {
-                let color = Rgba([
-                    (sum[0] / count) as u8,
-                    (sum[1] / count) as u8,
-                    (sum[2] / count) as u8,
-                    (sum[3] / count) as u8,
-                ]);
+            if let (Some(red), Some(green), Some(blue), Some(alpha)) = (
+                sum[0].checked_div(count),
+                sum[1].checked_div(count),
+                sum[2].checked_div(count),
+                sum[3].checked_div(count),
+            ) {
+                let color = Rgba([red as u8, green as u8, blue as u8, alpha as u8]);
                 for py in y..max_y {
                     for px in x..max_x {
                         image.put_pixel(px, py, color);

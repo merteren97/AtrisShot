@@ -1,6 +1,17 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
+async function readFirstExisting(...urls) {
+  for (const url of urls) {
+    try {
+      return await readFile(url, "utf8");
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+    }
+  }
+  throw new Error(`None of the expected files exist: ${urls.map((url) => url.pathname).join(", ")}`);
+}
+
 const rust = await readFile(
   new URL("../apps/desktop/src-tauri/src/lib.rs", import.meta.url),
   "utf8",
@@ -135,9 +146,9 @@ const desktopLayout = await readFile(new URL("../apps/desktop/src/app/layout.tsx
 const landingLayout = await readFile(new URL("../apps/landing/app/layout.tsx", import.meta.url), "utf8");
 const desktopManifest = await readFile(new URL("../apps/desktop/public/manifest.webmanifest", import.meta.url), "utf8");
 const landingManifest = await readFile(new URL("../apps/landing/public/manifest.webmanifest", import.meta.url), "utf8");
-const publicManifest = await readFile(
+const publicManifest = await readFirstExisting(
   new URL("../services/public-server/public/manifest.webmanifest", import.meta.url),
-  "utf8",
+  new URL("../apps/landing/public/manifest.webmanifest", import.meta.url),
 );
 const themeSources = [
   desktopTheme,
