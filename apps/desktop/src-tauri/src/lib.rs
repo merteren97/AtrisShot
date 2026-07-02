@@ -138,6 +138,10 @@ fn history_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(app_data_root(app)?.join("history.json"))
 }
 
+fn settings_path(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(app_data_root(app)?.join("settings.json"))
+}
+
 fn shots_dir(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(app_data_root(app)?.join("shots"))
 }
@@ -151,6 +155,23 @@ fn capture_root(app: &AppHandle, save_folder: Option<&str>) -> Result<PathBuf, S
 
 fn normalized_history_limit(limit: Option<usize>) -> usize {
     limit.unwrap_or(100).clamp(10, 500)
+}
+
+fn shortcut_from_settings_json(contents: &str) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_str(contents).ok()?;
+    value
+        .get("shotSettings")
+        .and_then(|settings| settings.get("shortcut"))
+        .and_then(|shortcut| shortcut.as_str())
+        .map(str::trim)
+        .filter(|shortcut| !shortcut.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+fn shortcut_from_settings_file(path: &Path) -> Option<String> {
+    fs::read_to_string(path)
+        .ok()
+        .and_then(|contents| shortcut_from_settings_json(&contents))
 }
 
 fn validate_custom_save_folder(folder: &str) -> Result<PathBuf, String> {
@@ -625,6 +646,38 @@ fn draw_rect(
     draw_line(image, &bottom_left, &top_left, color, stroke_width);
 }
 
+fn draw_ellipse(
+    image: &mut RgbaImage,
+    start: &AnnotationPoint,
+    end: &AnnotationPoint,
+    color: Rgba<u8>,
+    stroke_width: u32,
+) {
+    let left = start.x.min(end.x);
+    let right = start.x.max(end.x);
+    let top = start.y.min(end.y);
+    let bottom = start.y.max(end.y);
+    let radius_x = ((right - left) / 2.0).max(1.0);
+    let radius_y = ((bottom - top) / 2.0).max(1.0);
+    let center_x = left + radius_x;
+    let center_y = top + radius_y;
+    let circumference = std::f32::consts::TAU * radius_x.max(radius_y);
+    let steps = circumference.max(48.0).round() as u32;
+    let mut previous: Option<AnnotationPoint> = None;
+
+    for step in 0..=steps {
+        let angle = std::f32::consts::TAU * (step as f32 / steps as f32);
+        let point = AnnotationPoint {
+            x: center_x + radius_x * angle.cos(),
+            y: center_y + radius_y * angle.sin(),
+        };
+        if let Some(previous_point) = previous {
+            draw_line(image, &previous_point, &point, color, stroke_width);
+        }
+        previous = Some(point);
+    }
+}
+
 fn pixelate_region(image: &mut RgbaImage, start: &AnnotationPoint, end: &AnnotationPoint) {
     let left = start.x.min(end.x).max(0.0) as u32;
     let top = start.y.min(end.y).max(0.0) as u32;
@@ -761,7 +814,8 @@ fn render_annotations(
         let stroke_width = annotation.stroke_width.unwrap_or(3).max(1);
         let color = parse_color(&annotation.color, 245);
         match annotation.tool.as_str() {
-            "rectangle" | "ellipse" => draw_rect(&mut image, start, end, color, stroke_width),
+            "rectangle" => draw_rect(&mut image, start, end, color, stroke_width),
+            "ellipse" => draw_ellipse(&mut image, start, end, color, stroke_width),
             "line" => draw_line(&mut image, start, end, color, stroke_width),
             "arrow" => draw_arrow(&mut image, start, end, color, stroke_width),
             "pen" => {
@@ -992,6 +1046,21 @@ fn clear_shot_history(
 }
 
 #[tauri::command]
+fn latest_shot(
+    app: AppHandle,
+    store: State<'_, ShotStore>,
+) -> Result<Option<ShotHistoryEntry>, String> {
+    let mut entries = store
+        .entries
+        .lock()
+        .map_err(|_| "Shot history state is unavailable.".to_string())?;
+    if entries.is_empty() {
+        *entries = load_history_from_disk(&app);
+    }
+    Ok(entries.first().cloned())
+}
+
+#[tauri::command]
 fn apply_annotations(
     app: AppHandle,
     store: State<'_, ShotStore>,
@@ -1104,6 +1173,20 @@ fn open_storage_folder(app: AppHandle, save_folder: String) -> Result<(), String
     open_folder(&path)
 }
 
+fn register_capture_shortcut(app: &AppHandle, shortcut: &str) -> Result<String, String> {
+    let parsed: Shortcut = shortcut
+        .parse()
+        .map_err(|error| format!("Invalid shortcut: {error}"))?;
+    app.global_shortcut()
+        .on_shortcut(parsed, |app, _shortcut, event| {
+            if event.state() == ShortcutState::Pressed {
+                show_capture_overlay(app.clone());
+            }
+        })
+        .map_err(|error| format!("Shortcut is unavailable: {error}"))?;
+    Ok(shortcut.to_string())
+}
+
 #[tauri::command]
 fn save_shortcut(
     app: AppHandle,
@@ -1116,13 +1199,7 @@ fn save_shortcut(
     if previous_shortcut.as_deref() == Some(shortcut.as_str()) {
         return Ok(shortcut);
     }
-    app.global_shortcut()
-        .on_shortcut(parsed, |app, _shortcut, event| {
-            if event.state() == ShortcutState::Pressed {
-                show_capture_overlay(app.clone());
-            }
-        })
-        .map_err(|error| format!("Shortcut is unavailable: {error}"))?;
+    register_capture_shortcut(&app, &shortcut)?;
 
     if let Some(previous) = previous_shortcut {
         if let Ok(previous_parsed) = previous.parse::<Shortcut>() {
@@ -1319,14 +1396,14 @@ pub fn run() {
             {
                 let _ = window.set_icon(icon.clone());
             }
-            if let Ok(shortcut) = DEFAULT_SHORTCUT.parse::<Shortcut>() {
-                let _ = app
-                    .global_shortcut()
-                    .on_shortcut(shortcut, |app, _shortcut, event| {
-                        if event.state() == ShortcutState::Pressed {
-                            show_capture_overlay(app.clone());
-                        }
-                    });
+            let startup_shortcut = settings_path(app.handle())
+                .ok()
+                .and_then(|path| shortcut_from_settings_file(&path))
+                .unwrap_or_else(|| DEFAULT_SHORTCUT.to_string());
+            if register_capture_shortcut(app.handle(), &startup_shortcut).is_err()
+                && startup_shortcut != DEFAULT_SHORTCUT
+            {
+                let _ = register_capture_shortcut(app.handle(), DEFAULT_SHORTCUT);
             }
 
             let menu = build_tray_menu(app.handle(), "en")?;
@@ -1377,6 +1454,7 @@ pub fn run() {
             capture_shot,
             delete_shot,
             clear_shot_history,
+            latest_shot,
             apply_annotations,
             reveal_shot,
             copy_shot_path,
@@ -1426,6 +1504,28 @@ mod tests {
         assert_eq!(normalized_history_limit(Some(1)), 10);
         assert_eq!(normalized_history_limit(Some(120)), 120);
         assert_eq!(normalized_history_limit(Some(900)), 500);
+    }
+
+    #[test]
+    fn shortcut_settings_json_reads_saved_shortcut() {
+        let settings = r#"{
+            "shotSettings": {
+                "shortcut": "Ctrl+Alt+S",
+                "clipboardMode": "image"
+            }
+        }"#;
+        assert_eq!(
+            shortcut_from_settings_json(settings),
+            Some("Ctrl+Alt+S".to_string())
+        );
+        assert_eq!(
+            shortcut_from_settings_json(r#"{"shotSettings":{"shortcut":"   "}}"#),
+            None
+        );
+        assert_eq!(
+            shortcut_from_settings_json(r#"{"other":{"shortcut":"Ctrl+Alt+S"}}"#),
+            None
+        );
     }
 
     #[test]
@@ -1545,6 +1645,28 @@ mod tests {
                 font_size: None,
             },
             ShotAnnotation {
+                tool: "ellipse".to_string(),
+                color: "#22c55e".to_string(),
+                stroke_width: Some(3),
+                points: vec![
+                    AnnotationPoint { x: 54.0, y: 8.0 },
+                    AnnotationPoint { x: 74.0, y: 32.0 },
+                ],
+                text: None,
+                font_size: None,
+            },
+            ShotAnnotation {
+                tool: "line".to_string(),
+                color: "#f59e0b".to_string(),
+                stroke_width: Some(3),
+                points: vec![
+                    AnnotationPoint { x: 10.0, y: 52.0 },
+                    AnnotationPoint { x: 70.0, y: 52.0 },
+                ],
+                text: None,
+                font_size: None,
+            },
+            ShotAnnotation {
                 tool: "text".to_string(),
                 color: "#ef4444".to_string(),
                 stroke_width: Some(1),
@@ -1555,7 +1677,10 @@ mod tests {
         ];
         render_annotations(&original, &edited, &annotations).expect("render annotations");
         assert!(edited.exists());
-        assert!(fs::metadata(edited).expect("edited metadata").len() > 0);
+        assert!(fs::metadata(&edited).expect("edited metadata").len() > 0);
+        let edited_image = image::open(&edited).expect("open edited image").to_rgba8();
+        assert_ne!(*edited_image.get_pixel(74, 20), Rgba([255, 255, 255, 255]));
+        assert_ne!(*edited_image.get_pixel(40, 52), Rgba([255, 255, 255, 255]));
         let _ = fs::remove_dir_all(root);
     }
 

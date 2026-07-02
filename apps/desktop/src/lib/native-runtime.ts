@@ -47,6 +47,8 @@ export const nativeRuntime = {
       : Promise.reject(new Error("Open the packaged desktop app to capture the screen.")),
   listShotHistory: () =>
     isNativeRuntime() ? invoke<ShotHistoryEntry[]>("list_shot_history") : Promise.resolve([]),
+  latestShot: () =>
+    isNativeRuntime() ? invoke<ShotHistoryEntry | null>("latest_shot") : Promise.resolve(null),
   deleteShot: (id: string) => invoke<ShotHistoryEntry[]>("delete_shot", { id }),
   clearShotHistory: () => invoke<ShotHistoryEntry[]>("clear_shot_history"),
   revealShot: (path: string) => invoke<void>("reveal_shot", { path }),

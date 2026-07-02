@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type MouseEventHandler } from "react";
 import {
   ArrowUpRight,
+  Circle,
   Clipboard,
   Copy,
   Edit3,
@@ -14,6 +15,7 @@ import {
   Keyboard,
   Layers,
   LogOut,
+  Minus,
   MousePointer2,
   PenLine,
   RectangleHorizontal,
@@ -733,6 +735,8 @@ function EditorPanel({
 
   const tools: Array<[ShotAnnotation["tool"], typeof RectangleHorizontal, string]> = [
     ["rectangle", RectangleHorizontal, "Rectangle"],
+    ["ellipse", Circle, "Ellipse"],
+    ["line", Minus, "Line"],
     ["arrow", ArrowUpRight, "Arrow"],
     ["pen", PenLine, "Pen"],
     ["text", Type, "Text"],
@@ -927,9 +931,10 @@ function AnnotationPreview({
   const boxWidth = `${(Math.max(24, Math.abs(second.x - first.x)) / width) * 100}%`;
   const boxHeight = `${(Math.max(18, Math.abs(second.y - first.y)) / height) * 100}%`;
   const isText = annotation.tool === "text";
+  const isEllipse = annotation.tool === "ellipse";
   return (
     <div
-      className={`pointer-events-none absolute rounded border-2 bg-background/15 px-2 py-1 text-xs font-medium ${selected ? "shadow-[0_0_0_2px_rgb(255_255_255_/_0.85)]" : ""}`}
+      className={`pointer-events-none absolute border-2 bg-background/15 px-2 py-1 text-xs font-medium ${isEllipse ? "rounded-full" : "rounded"} ${selected ? "shadow-[0_0_0_2px_rgb(255_255_255_/_0.85)]" : ""}`}
       style={{
         left,
         top,
