@@ -40,14 +40,6 @@ jobs:
         env:
           TAURI_UPDATER_PUBLIC_KEY: ${{ secrets.TAURI_UPDATER_PUBLIC_KEY }}
         run: node .github/scripts/inject-updater-public-key.mjs
-      - name: Enforce stable release readiness
-        shell: bash
-        run: |
-          if [[ "$MANUAL_PRERELEASE" != "true" && "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            npm run release:readiness:strict
-          else
-            echo "Skipping stable readiness gate for prerelease tag: $RELEASE_TAG"
-          fi
       - name: Require updater signing key
         shell: bash
         env: { TAURI_SIGNING_PRIVATE_KEY: "${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}" }

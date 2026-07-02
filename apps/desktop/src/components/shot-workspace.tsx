@@ -264,15 +264,6 @@ export function ShotWorkspace({ session, onLogout }: { session: ShotSession; onL
   return (
     <main className="flex h-screen overflow-hidden bg-background">
       <aside className="flex h-screen w-16 shrink-0 flex-col border-r bg-card px-2 py-4 lg:w-56 lg:px-3">
-        <div className="mb-5 hidden items-center gap-3 px-2 lg:flex">
-          <div className="grid h-9 w-9 place-items-center rounded-lg bg-primary text-primary-foreground">
-            <Scissors className="h-4 w-4" />
-          </div>
-          <div>
-            <p className="text-sm font-semibold">AtrisShot</p>
-            <p className="text-xs text-muted-foreground">Local screenshots</p>
-          </div>
-        </div>
         <nav className="space-y-1" aria-label="Primary navigation">
           {[
             { icon: Home, label: "Capture", section: "capture" as const },

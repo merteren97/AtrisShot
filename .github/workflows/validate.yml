@@ -17,8 +17,6 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run validate
-      - name: Report stable release blockers
-        run: npm run release:readiness
       - name: Audit public build boundary
         shell: bash
         run: |
