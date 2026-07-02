@@ -28,6 +28,7 @@ const readiness = json("release/readiness.json");
 const betaMatrixPath = "docs/beta-test-matrix.md";
 const pendingBetaCells = countPendingBetaCells(read(betaMatrixPath));
 const releaseWorkflow = read(".github/workflows/release.yml");
+const workflowSources = [releaseWorkflow, read(".github/workflows/deploy.yml"), read(".github/workflows/validate.yml")].join("\n");
 const cargoVersion = read("apps/desktop/src-tauri/Cargo.toml").match(/^version\s*=\s*"([^"]+)"/m)?.[1];
 
 if (new Set([rootVersion, desktopVersion, tauri.version, cargoVersion]).size !== 1) {
@@ -61,6 +62,9 @@ if (!releaseWorkflow.includes('npm run tauri:build -- --target "${{ matrix.rustT
 if (!releaseWorkflow.includes("apps/desktop/src-tauri/target/**/release/bundle/**/*.sig")) {
   blockers.push("Release workflow artifact upload does not include target-specific release bundle paths.");
 }
+if (/COMPONENT_|component-production|Release AtrisShot Components|R2_|shot-components|voice-components/i.test(workflowSources)) {
+  blockers.push("AtrisShot workflows must not include AtrisVoice-style component publishing or R2 distribution.");
+}
 
 const forbiddenSecretPatterns = [
   /TAURI_SIGNING_PRIVATE_KEY\s*=\s*["'][^-{][^"']+/,
@@ -70,6 +74,8 @@ const forbiddenSecretPatterns = [
 const trackedText = [
   ".env.example",
   ".github/workflows/release.yml",
+  ".github/workflows/deploy.yml",
+  ".github/workflows/validate.yml",
   "apps/desktop/src-tauri/tauri.conf.json",
 ].map(read).join("\n");
 if (forbiddenSecretPatterns.some((pattern) => pattern.test(trackedText))) {

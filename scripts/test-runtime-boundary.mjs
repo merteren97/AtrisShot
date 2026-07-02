@@ -49,8 +49,13 @@ const publicServer = await readFile(
   new URL("../services/public-server/src/server.ts", import.meta.url),
   "utf8",
 );
+const releaseWorkflow = await readFile(new URL("../.github/workflows/release.yml", import.meta.url), "utf8");
+const deployWorkflow = await readFile(new URL("../.github/workflows/deploy.yml", import.meta.url), "utf8");
+const validateWorkflow = await readFile(new URL("../.github/workflows/validate.yml", import.meta.url), "utf8");
+const workflowSources = [releaseWorkflow, deployWorkflow, validateWorkflow].join("\n");
 assert.match(publicServer, /createReleaseRouter/);
 assert.doesNotMatch(publicServer, /PrismaClient|JWT_SECRET|component|microphone|transcribe/i);
+assert.doesNotMatch(workflowSources, /COMPONENT_|component-production|Release AtrisShot Components|R2_|shot-components|voice-components/i);
 
 const landing = await readFile(new URL("../apps/landing/app/page.tsx", import.meta.url), "utf8");
 assert.match(landing, /\/api\/releases\/download-platform\//);
