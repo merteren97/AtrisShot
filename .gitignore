@@ -1,0 +1,102 @@
+# Dependencies and package-manager caches
+node_modules/
+.npm-cache/
+.pnpm-store/
+.yarn/
+.yarn-cache/
+.bun/
+
+# Next.js, TypeScript, and workspace build outputs
+.next/
+next-dev-cache/
+out/
+dist/
+build/
+.turbo/
+.vercel/
+*.tsbuildinfo
+apps/*/.next/
+apps/*/out/
+apps/*/dist/
+apps/*/build/
+packages/*/dist/
+services/*/dist/
+services/public-server/public/
+
+# Tauri, Rust, and native packaging outputs
+target/
+src-tauri/target/
+apps/*/src-tauri/target/
+apps/*/src-tauri/gen/
+apps/*/src-tauri/binaries/
+apps/*/src-tauri/target-*/
+*.pdb
+*.msi
+*.exe
+*.dmg
+*.AppImage
+*.deb
+*.sig
+
+# Environment files, private keys, certificates, and local secrets
+.env
+.env.*
+!.env.example
+*.local
+*.pem
+*.key
+*.crt
+*.csr
+*.p12
+*.pfx
+*.keystore
+*.jks
+*.mobileprovision
+*.provisionprofile
+*.secret
+secrets/
+private/
+
+# Local AtrisShot runtime data
+shots/
+cache/
+logs/
+history/
+thumbnails/
+screenshots/
+app-data/
+.tmp-atris-shot-icon.png
+
+# Test, coverage, and diagnostics
+coverage/
+playwright-report/
+test-results/
+*.log
+*.trace
+*.har
+*.prof
+
+# Local editor, OS, and shell files
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Scratch work and local automation state
+scratch/
+.tmp/
+.temp/
+.cache/
+.agent-runs/
+.worktrees/
+.sandboxes/
+.traces/
+
+# Local MertCode state and private operator documentation
+.mertcode/
+docs/
+brand-options/

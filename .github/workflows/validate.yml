@@ -1,0 +1,43 @@
+name: Validate AtrisShot
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  validate-web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run validate
+      - name: Report stable release blockers
+        run: npm run release:readiness
+      - name: Audit public build boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -R -E "src-tauri|microphone|transcribe_audio|ATRIS_AUTH_API_URL|DATABASE_URL" services/public-server/dist services/public-server/public; then
+            echo "Public build contains a forbidden desktop or private runtime dependency."
+            exit 1
+          fi
+
+  validate-rust:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Install Tauri Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - run: cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml --check
+      - run: cargo clippy --manifest-path apps/desktop/src-tauri/Cargo.toml -- -D warnings

@@ -1,0 +1,41 @@
+{
+  "name": "@atris-shot/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "cross-env NEXT_DIST_DIR=next-dev-cache next dev -p 3009",
+    "build": "next build",
+    "build:export": "cross-env EXPORT_STATIC=true next build",
+    "build:tauri-export": "node scripts/build-tauri-export.mjs",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@atris-shot/api-contracts": "0.1.0",
+    "@atris-shot/shot-core": "0.1.0",
+    "@tauri-apps/api": "^2.11.0",
+    "@tauri-apps/plugin-clipboard-manager": "^2.3.2",
+    "@tauri-apps/plugin-global-shortcut": "^2.3.1",
+    "@tauri-apps/plugin-store": "^2.4.2",
+    "@tauri-apps/plugin-updater": "^2.10.1",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.468.0",
+    "next": "16.2.7",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "tailwind-merge": "^3.3.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.10",
+    "@tauri-apps/cli": "^2.11.2",
+    "@types/node": "^20.19.1",
+    "@types/react": "^19.1.8",
+    "@types/react-dom": "^19.1.6",
+    "cross-env": "^10.0.0",
+    "tailwindcss": "^4.1.10",
+    "typescript": "^5.9.2"
+  }
+}

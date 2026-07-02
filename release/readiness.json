@@ -1,0 +1,6 @@
+{
+  "hardeningPhaseOpen": true,
+  "closedBeta": {
+    "source": "docs/beta-test-matrix.md"
+  }
+}
