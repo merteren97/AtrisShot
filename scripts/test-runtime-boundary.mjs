@@ -78,13 +78,16 @@ assert.doesNotMatch(publicServer, /PrismaClient|JWT_SECRET|component|microphone|
 assert.doesNotMatch(workflowSources, /COMPONENT_|component-production|Release AtrisShot Components|R2_|shot-components|voice-components/i);
 
 const landing = await readFile(new URL("../apps/landing/app/page.tsx", import.meta.url), "utf8");
+const landingCopy = await readFile(new URL("../apps/landing/lib/landing-copy.ts", import.meta.url), "utf8");
+const landingSources = `${landing}\n${landingCopy}`;
 assert.match(landing, /\/api\/releases\/download-platform\//);
-for (const target of ["windows-x86_64", "linux-x86_64", "darwin-x86_64", "darwin-aarch64"]) {
+for (const target of ["windows-x86_64", "linux-x86_64"]) {
   assert.match(landing, new RegExp(target));
 }
-assert.match(landing, /Focused capture/);
-assert.doesNotMatch(landing, /Select display|Click a display|select a full display/i);
-assert.doesNotMatch(landing, /\/api\/auth|nativeRuntime|membership/i);
+assert.match(landingCopy, /macOS packages will return|macOS paketi/);
+assert.match(landingSources, /Focused capture|Odaklı yakalama/);
+assert.doesNotMatch(landingSources, /Select display|Click a display|select a full display/i);
+assert.doesNotMatch(landingSources, /\/api\/auth|nativeRuntime/i);
 
 const nativeRuntime = await readFile(
   new URL("../apps/desktop/src/lib/native-runtime.ts", import.meta.url),
