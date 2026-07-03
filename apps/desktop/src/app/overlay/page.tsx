@@ -8,12 +8,11 @@ import { nativeRuntime } from "@/lib/native-runtime";
 
 export default function OverlayPage() {
   const [entry, setEntry] = useState<ShotHistoryEntry | null>(null);
-  const [thumbnailUrl, setThumbnailUrl] = useState("");
+  const [previewUrl, setPreviewUrl] = useState("");
   const shotPath = entry?.editedPath || entry?.originalPath || "";
   const requestEdit = async () => {
     if (!entry) return;
-    await nativeRuntime.emitEditShotRequested(entry);
-    await nativeRuntime.openMainWindow();
+    await nativeRuntime.openEditorWindow(entry.id);
     await nativeRuntime.hideOverlay();
   };
 
@@ -45,18 +44,18 @@ export default function OverlayPage() {
 
   useEffect(() => {
     let cancelled = false;
-    setThumbnailUrl("");
-    if (!entry?.thumbnailPath) return;
+    setPreviewUrl("");
+    if (!shotPath) return;
     void nativeRuntime
-      .readShotDataUrl(entry.thumbnailPath)
+      .readShotDataUrl(shotPath)
       .then((url) => {
-        if (!cancelled) setThumbnailUrl(url);
+        if (!cancelled) setPreviewUrl(url);
       })
       .catch(() => undefined);
     return () => {
       cancelled = true;
     };
-  }, [entry?.thumbnailPath]);
+  }, [shotPath]);
 
   return (
     <main
@@ -66,19 +65,45 @@ export default function OverlayPage() {
         if (!(event.target as HTMLElement).closest("button,[data-path-drag]")) void nativeRuntime.startDragging();
       }}
     >
-      <div className="group w-full rounded-lg border bg-card/92 p-2 text-card-foreground shadow-2xl shadow-black/20 backdrop-blur-xl">
-        <div className="flex items-start gap-2">
+      <div className="group w-full overflow-hidden rounded-lg border bg-card/94 text-card-foreground shadow-2xl shadow-black/20 backdrop-blur-xl">
+        <div
+          data-path-drag
+          draggable={Boolean(entry)}
+          onDragStart={startPathDrag}
+          className="relative h-28 cursor-copy overflow-hidden border-b bg-muted/60"
+          title={shotPath ? "Drag path" : undefined}
+        >
+          {previewUrl ? (
+            <img src={previewUrl} alt="" className="h-full w-full object-contain" />
+          ) : (
+            <div className="grid h-full place-items-center">
+              <Image className="h-7 w-7 text-muted-foreground" />
+            </div>
+          )}
+          <div className="absolute right-2 top-2 flex gap-1 rounded-full border bg-background/80 p-1 opacity-100 shadow-sm backdrop-blur">
+            <Button size="icon" variant="ghost" className="h-7 w-7" aria-label="Copy path" disabled={!entry} onClick={() => entry && void nativeRuntime.copyShotPath(entry.editedPath || entry.originalPath)}>
+              <Copy className="h-3.5 w-3.5" />
+            </Button>
+            <Button size="icon" variant="ghost" className="h-7 w-7" aria-label="Edit screenshot" disabled={!entry} onClick={() => void requestEdit()}>
+              <Edit3 className="h-3.5 w-3.5" />
+            </Button>
+            <Button size="icon" variant="ghost" className="h-7 w-7" aria-label="Hide overlay" onClick={() => void nativeRuntime.hideOverlay()}>
+              <X className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 p-2">
           <div
             data-path-drag
             draggable={Boolean(entry)}
             onDragStart={startPathDrag}
-            className="grid h-12 w-16 shrink-0 cursor-copy place-items-center overflow-hidden rounded-md border bg-muted/60"
+            className="grid h-9 w-12 shrink-0 cursor-copy place-items-center overflow-hidden rounded-md border bg-muted/60"
             title={shotPath ? "Drag path" : undefined}
           >
-            {thumbnailUrl ? (
-              <img src={thumbnailUrl} alt="" className="h-full w-full object-cover" />
+            {previewUrl ? (
+              <img src={previewUrl} alt="" className="h-full w-full object-cover" />
             ) : (
-              <Image className="h-5 w-5 text-muted-foreground" />
+              <Image className="h-4 w-4 text-muted-foreground" />
             )}
           </div>
           <div className="min-w-0 flex-1">
@@ -92,17 +117,6 @@ export default function OverlayPage() {
             >
               {shotPath || "Last screenshot will appear here."}
             </p>
-            <div className="mt-2 flex gap-1 opacity-100">
-              <Button size="icon" variant="ghost" className="h-7 w-7" aria-label="Copy path" disabled={!entry} onClick={() => entry && void nativeRuntime.copyShotPath(entry.editedPath || entry.originalPath)}>
-                <Copy className="h-3.5 w-3.5" />
-              </Button>
-              <Button size="icon" variant="ghost" className="h-7 w-7" aria-label="Edit screenshot" disabled={!entry} onClick={() => void requestEdit()}>
-                <Edit3 className="h-3.5 w-3.5" />
-              </Button>
-              <Button size="icon" variant="ghost" className="h-7 w-7" aria-label="Hide overlay" onClick={() => void nativeRuntime.hideOverlay()}>
-                <X className="h-3.5 w-3.5" />
-              </Button>
-            </div>
           </div>
         </div>
       </div>

@@ -79,13 +79,15 @@ const copy = {
     storageDescription: "Screenshots are stored locally. Empty folder uses the operating-system app data directory.",
     saveFolder: "Save folder",
     saveFolderPlaceholder: "Default local app data folder",
+    chooseFolder: "Choose folder",
+    chooseFolderDesktopOnly: "Folder picker is available in the packaged desktop app.",
     validateFolder: "Validate folder",
     useDefault: "Use default",
     openFolder: "Open folder",
     captureDelay: "Capture delay (ms)",
     historyLimit: "History limit",
     cursorTitle: "Cursor capture",
-    cursorUnavailable: "The current native capture backend does not include the cursor yet, so this option is kept unavailable instead of saving a setting that would not take effect.",
+    cursorUnavailable: "Cursor capture is not supported by the current native backend yet.",
     unavailable: "Unavailable",
     advancedTitle: "Advanced",
     advancedDescription: "Remove AtrisShot data kept in this device's app-data area.",
@@ -148,13 +150,15 @@ const copy = {
     storageDescription: "Ekran görüntüleri yerel olarak saklanır. Boş klasör işletim sisteminin uygulama veri klasörünü kullanır.",
     saveFolder: "Kaydetme klasörü",
     saveFolderPlaceholder: "Varsayılan yerel uygulama veri klasörü",
+    chooseFolder: "Klasör seç",
+    chooseFolderDesktopOnly: "Klasör seçici paketlenmiş masaüstü uygulamasında kullanılabilir.",
     validateFolder: "Klasörü doğrula",
     useDefault: "Varsayılanı kullan",
     openFolder: "Klasörü aç",
     captureDelay: "Yakalama gecikmesi (ms)",
     historyLimit: "Geçmiş limiti",
     cursorTitle: "İmleç yakalama",
-    cursorUnavailable: "Mevcut native yakalama altyapısı imleci henüz dahil etmiyor; bu yüzden etkisiz kalacak bir ayar kaydetmek yerine bu seçenek kapalı tutuluyor.",
+    cursorUnavailable: "Mevcut native yakalama altyapısı imleci henüz dahil etmiyor.",
     unavailable: "Kullanılamıyor",
     advancedTitle: "Gelişmiş",
     advancedDescription: "Bu cihazdaki uygulama veri alanında tutulan AtrisShot verilerini kaldır.",
@@ -189,22 +193,24 @@ export function SettingsPanel({
   useEffect(() => {
     void loadDesktopSettings()
       .then((value) => {
-        setSettings(value);
-        setShortcutDraft(value.shortcut);
-        onSettingsChanged(value);
+        const next = { ...value, saveFolder: stripWindowsVerbatimPath(value.saveFolder) };
+        setSettings(next);
+        setShortcutDraft(next.shortcut);
+        onSettingsChanged(next);
       })
       .catch((reason) => setError(String(reason)))
       .finally(() => setLoading(false));
   }, [onSettingsChanged]);
 
   const persist = async (next: ShotSettings, savingKey: string) => {
+    const normalized = { ...next, saveFolder: stripWindowsVerbatimPath(next.saveFolder) };
     setSaving(savingKey);
     setMessage("");
     setError("");
     try {
-      await saveDesktopSettings(next);
-      setSettings(next);
-      onSettingsChanged(next);
+      await saveDesktopSettings(normalized);
+      setSettings(normalized);
+      onSettingsChanged(normalized);
       setMessage(text.preferenceSaved);
     } catch (reason) {
       setError(String(reason));
@@ -239,12 +245,36 @@ export function SettingsPanel({
     setMessage("");
     setError("");
     try {
-      const normalized = isNativeRuntime() ? await nativeRuntime.validateSaveFolder(value) : value.trim();
+      const normalized = stripWindowsVerbatimPath(isNativeRuntime() ? await nativeRuntime.validateSaveFolder(value) : value.trim());
       const next = { ...settings, saveFolder: normalized };
       await saveDesktopSettings(next);
       setSettings(next);
       onSettingsChanged(next);
       setMessage(normalized ? text.saveFolderReady : text.defaultFolderReady);
+    } catch (reason) {
+      setError(`${text.saveFolderError} ${String(reason)}`);
+    } finally {
+      setSaving("");
+    }
+  };
+
+  const chooseSaveFolder = async () => {
+    setSaving("chooseSaveFolder");
+    setMessage("");
+    setError("");
+    try {
+      if (!isNativeRuntime()) {
+        setMessage(text.chooseFolderDesktopOnly);
+        return;
+      }
+      const selected = await nativeRuntime.chooseSaveFolder(settings.saveFolder);
+      if (!selected) return;
+      const normalized = stripWindowsVerbatimPath(await nativeRuntime.validateSaveFolder(selected));
+      const next = { ...settings, saveFolder: normalized };
+      await saveDesktopSettings(next);
+      setSettings(next);
+      onSettingsChanged(next);
+      setMessage(text.saveFolderReady);
     } catch (reason) {
       setError(`${text.saveFolderError} ${String(reason)}`);
     } finally {
@@ -434,14 +464,17 @@ export function SettingsPanel({
           <label className="block space-y-2 text-sm font-medium sm:col-span-2">
             {text.saveFolder}
             <input
-              className="h-10 w-full rounded-md border bg-background px-3 font-normal outline-none focus:ring-2 focus:ring-ring"
+              className="h-10 w-full rounded-md border bg-background px-3 font-mono text-xs font-normal outline-none focus:ring-2 focus:ring-ring"
               value={settings.saveFolder}
               placeholder={text.saveFolderPlaceholder}
-              onChange={(event) => setSettings({ ...settings, saveFolder: event.target.value })}
+              onChange={(event) => setSettings({ ...settings, saveFolder: stripWindowsVerbatimPath(event.target.value) })}
               onBlur={(event) => void saveFolder(event.currentTarget.value)}
             />
           </label>
           <div className="flex flex-wrap gap-2 sm:col-span-2">
+            <Button type="button" disabled={saving === "chooseSaveFolder"} onClick={() => void chooseSaveFolder()}>
+              {saving === "chooseSaveFolder" ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <FolderOpen className="h-4 w-4" />} {text.chooseFolder}
+            </Button>
             <Button type="button" variant="outline" disabled={saving === "saveFolder"} onClick={() => void saveFolder()}>
               {saving === "saveFolder" ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} {text.validateFolder}
             </Button>
@@ -476,18 +509,6 @@ export function SettingsPanel({
             max={500}
             onChange={(value) => void persist({ ...settings, historyLimit: value }, "historyLimit")}
           />
-          <button
-            type="button"
-            disabled
-            className="flex cursor-not-allowed items-start gap-3 rounded-lg border bg-muted/40 p-4 text-left opacity-80 sm:col-span-2"
-          >
-            <MapPinned className="mt-0.5 h-4 w-4 shrink-0" />
-            <span>
-              <span className="block text-sm font-medium">{text.cursorTitle}</span>
-              <span className="mt-1 block text-xs leading-5 text-muted-foreground">{text.cursorUnavailable}</span>
-              <span className="mt-2 inline-flex rounded-md border bg-background px-2 py-1 text-[11px] font-medium text-muted-foreground">{text.unavailable}</span>
-            </span>
-          </button>
         </CardContent>
       </Card>
 
@@ -496,7 +517,18 @@ export function SettingsPanel({
           <CardTitle className="flex items-center gap-2"><AlertTriangle className="h-4 w-4 text-destructive" />{text.advancedTitle}</CardTitle>
           <CardDescription>{text.advancedDescription}</CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
+          <div className="flex items-start gap-3 rounded-lg border bg-muted/25 p-3 text-left">
+            <MapPinned className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-sm font-medium">{text.cursorTitle}</p>
+                <span className="rounded-md border bg-background px-2 py-0.5 text-[11px] font-medium text-muted-foreground">{text.unavailable}</span>
+              </div>
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">{text.cursorUnavailable}</p>
+            </div>
+          </div>
+
           <div className="rounded-lg border bg-muted/30 p-4">
             <div className="flex items-start gap-3">
               <Trash2 className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
@@ -588,4 +620,8 @@ function NumberField({
       />
     </label>
   );
+}
+
+function stripWindowsVerbatimPath(value: string) {
+  return value.replace(/^\\\\\?\\UNC\\/i, "\\\\").replace(/^\\\\\?\\/i, "");
 }

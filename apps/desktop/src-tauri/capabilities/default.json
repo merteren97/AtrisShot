@@ -2,11 +2,12 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "AtrisShot desktop runtime permissions",
-  "windows": ["main", "overlay", "capture"],
+  "windows": ["main", "overlay", "capture", "editor"],
   "permissions": [
     "core:default",
     "core:window:allow-start-dragging",
     "clipboard-manager:allow-write-text",
+    "dialog:allow-open",
     "global-shortcut:allow-register",
     "global-shortcut:allow-unregister",
     "global-shortcut:allow-unregister-all",

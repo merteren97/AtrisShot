@@ -12,7 +12,8 @@
   "app": {
     "windows": [
       { "label": "main", "title": "AtrisShot", "width": 1120, "height": 720, "minWidth": 900, "minHeight": 600, "resizable": true, "fullscreen": false },
-      { "label": "overlay", "title": "AtrisShot Result", "url": "/overlay", "width": 320, "height": 104, "transparent": true, "alwaysOnTop": true, "decorations": false, "shadow": false, "resizable": false, "skipTaskbar": true, "visible": false },
+      { "label": "editor", "title": "AtrisShot Editor", "url": "/editor", "width": 1120, "height": 760, "minWidth": 860, "minHeight": 560, "resizable": true, "fullscreen": false, "visible": false },
+      { "label": "overlay", "title": "AtrisShot Result", "url": "/overlay", "width": 440, "height": 190, "transparent": true, "alwaysOnTop": true, "decorations": false, "shadow": false, "resizable": false, "skipTaskbar": true, "visible": false },
       { "label": "capture", "title": "AtrisShot Capture", "url": "/capture-overlay", "width": 1440, "height": 900, "transparent": true, "alwaysOnTop": true, "decorations": false, "shadow": false, "resizable": false, "skipTaskbar": true, "visible": false }
     ],
     "security": { "csp": null }

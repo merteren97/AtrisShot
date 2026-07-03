@@ -27,6 +27,9 @@ const nativeAuth = await readFile(
 const tauriConfig = JSON.parse(
   await readFile(new URL("../apps/desktop/src-tauri/tauri.conf.json", import.meta.url), "utf8"),
 );
+const tauriCapability = JSON.parse(
+  await readFile(new URL("../apps/desktop/src-tauri/capabilities/default.json", import.meta.url), "utf8"),
+);
 
 assert.match(rust, /app_data_dir/);
 assert.match(rust, /Shot path must stay inside the AtrisShot data directory/);
@@ -45,6 +48,7 @@ assert.match(rust, /"ellipse" => draw_ellipse/);
 assert.doesNotMatch(rust, /"rectangle" \| "ellipse" => draw_rect/);
 assert.match(rust, /shortcut_from_settings_json/);
 assert.match(rust, /shortcut_from_settings_file/);
+assert.match(rust, /display_path/);
 assert.match(rust, /register_capture_shortcut\(app\.handle\(\), &startup_shortcut\)/);
 assert.match(rust, /"shotSettings"/);
 assert.match(rust, /AtrisShot'u Aç/);
@@ -63,6 +67,9 @@ assert.match(nativeAuth, /keyring::Entry/);
 assert.match(nativeAuth, /com\.atrishub\.shot/);
 assert.equal(tauriConfig.app.windows.some((window) => window.label === "overlay"), true);
 assert.equal(tauriConfig.app.windows.some((window) => window.label === "capture"), true);
+assert.equal(tauriConfig.app.windows.some((window) => window.label === "editor" && window.url === "/editor" && window.visible === false), true);
+assert.equal(tauriCapability.windows.includes("editor"), true);
+assert.equal(tauriCapability.permissions.includes("dialog:allow-open"), true);
 assert.match(JSON.stringify(tauriConfig.plugins.updater.endpoints), /shot\.atrishub\.com/);
 
 const publicServer = await readFile(
@@ -109,6 +116,14 @@ const resultOverlay = await readFile(
   new URL("../apps/desktop/src/app/overlay/page.tsx", import.meta.url),
   "utf8",
 );
+const editorPage = await readFile(
+  new URL("../apps/desktop/src/app/editor/page.tsx", import.meta.url),
+  "utf8",
+);
+const editorWindow = await readFile(
+  new URL("../apps/desktop/src/components/shot-editor-window.tsx", import.meta.url),
+  "utf8",
+);
 const settingsPanel = await readFile(
   new URL("../apps/desktop/src/components/settings-panel.tsx", import.meta.url),
   "utf8",
@@ -117,23 +132,47 @@ assert.match(nativeRuntime, /readShotDataUrl/);
 assert.match(nativeRuntime, /latestShot/);
 assert.match(nativeRuntime, /focusedWindowRegion/);
 assert.match(nativeRuntime, /windowRegionAtPoint/);
+assert.match(nativeRuntime, /openEditorWindow/);
+assert.match(nativeRuntime, /open_editor_window/);
+assert.match(nativeRuntime, /hideEditorWindow/);
+assert.match(nativeRuntime, /hide_editor_window/);
+assert.match(nativeRuntime, /onEditorShotRequested/);
+assert.match(nativeRuntime, /editor-shot-requested/);
+assert.match(nativeRuntime, /chooseSaveFolder/);
+assert.match(nativeRuntime, /@tauri-apps\/plugin-dialog/);
 assert.doesNotMatch(nativeRuntime, /convertFileSrc|fileUrl/);
 assert.match(workspace, /readShotDataUrl/);
-assert.match(workspace, /Capture current screen/);
-assert.match(workspace, /Focused capture/);
-assert.match(workspace, /\["ellipse", Circle, "Ellipse"\]/);
-assert.match(workspace, /\["line", Minus, "Line"\]/);
+assert.match(workspace, /HistoryWorkspace/);
+assert.match(workspace, /Selected screenshot/);
+assert.doesNotMatch(workspace, /Open capture overlay|settings\.shortcut\.replaceAll/);
+assert.match(workspace, /formatShotDate/);
+assert.match(workspace, /Date unavailable/);
+assert.match(workspace, /cleanDisplayName/);
+assert.match(workspace, /pathParts/);
+assert.match(workspace, /modeLabel/);
+assert.match(workspace, /openEditorWindow\(entry\.id\)/);
+assert.doesNotMatch(workspace, /section: "editor"/);
+assert.doesNotMatch(workspace, /setActiveSection\("editor"\)/);
+assert.doesNotMatch(workspace, /function CapturePanel|function EditorPanel/);
 assert.doesNotMatch(workspace, /Capture display|Display layout|click a display/);
 assert.match(resultOverlay, /readShotDataUrl/);
+assert.match(resultOverlay, /previewUrl/);
 assert.match(resultOverlay, /nativeRuntime\.latestShot\(\)/);
+assert.match(resultOverlay, /openEditorWindow\(entry\.id\)/);
+assert.doesNotMatch(resultOverlay, /emitEditShotRequested|openMainWindow/);
 assert.match(resultOverlay, /data-path-drag/);
 assert.match(resultOverlay, /dataTransfer\.setData\("text\/plain", shotPath\)/);
 assert.match(resultOverlay, /closest\("button,\[data-path-drag\]"\)/);
 assert.match(captureOverlay, /focusedWindowRegion/);
 assert.match(captureOverlay, /windowRegionAtPoint/);
+assert.match(captureOverlay, /resolveFreshWindowRegion/);
+assert.match(captureOverlay, /hoverTouched/);
 assert.match(captureOverlay, /hideCaptureOverlay/);
 assert.match(captureOverlay, /showCaptureOverlay/);
-assert.match(captureOverlay, /Focused window/);
+assert.match(captureOverlay, /lockedRegion/);
+assert.match(captureOverlay, /event\.key === "Enter"/);
+assert.match(captureOverlay, /Hover a window, click to select, press Enter to save, or drag a region/);
+assert.doesNotMatch(captureOverlay, /Click to capture focused window|Click to capture this screen/);
 assert.match(uiPreferences, /Atris oturumu doğrulanıyor/);
 assert.match(uiPreferences, /Atris hesabınla giriş yap/);
 assert.match(uiPreferences, /Güncellemeyi kur/);
@@ -141,7 +180,47 @@ assert.doesNotMatch(uiPreferences, /Ã|Ä|Å|Â|�/);
 assert.match(settingsPanel, /Türkçe/);
 assert.match(settingsPanel, /Görünüm ve dil/);
 assert.match(settingsPanel, /Kaydetme klasörü/);
+assert.match(settingsPanel, /chooseSaveFolder/);
+assert.match(settingsPanel, /Klasör seç/);
 assert.doesNotMatch(settingsPanel, /Ã|Ä|Å|Â|�/);
+
+assert.match(editorPage, /ShotEditorWindow/);
+assert.match(editorWindow, /ToolRail/);
+assert.match(editorWindow, /ContextToolbar/);
+assert.match(editorWindow, /data-editor-inline-text/);
+assert.match(editorWindow, /normalizeAnnotations/);
+assert.match(editorWindow, /cloneAnnotations/);
+assert.match(editorWindow, /undoStack/);
+assert.match(editorWindow, /event\.key\.toLowerCase\(\) === "z"/);
+assert.match(editorWindow, /event\.key === "Enter"/);
+assert.match(editorWindow, /event\.key === "Delete"/);
+assert.match(editorWindow, /"resize-start"/);
+assert.match(editorWindow, /resizeTextAnnotation/);
+assert.match(editorWindow, /distanceToSegment/);
+assert.match(editorWindow, /data-editor-hit/);
+assert.match(editorWindow, /Pixel size/);
+assert.match(editorWindow, /backgroundSize/);
+assert.match(editorWindow, /backdropFilter/);
+assert.doesNotMatch(editorWindow, /border-2 bg-background\/15/);
+assert.doesNotMatch(editorWindow, /isText \? annotation\.text \|\| "Text" : annotation\.tool/);
+assert.match(editorWindow, /showOverlay/);
+assert.match(editorWindow, /hideEditorWindow/);
+assert.match(editorWindow, /readShotDataUrl/);
+assert.match(editorWindow, /onEditorShotRequested/);
+assert.match(editorWindow, /Click canvas to write/);
+assert.match(rust, /fn open_editor_window/);
+assert.match(rust, /fn hide_editor_window/);
+assert.match(rust, /center_window/);
+assert.match(rust, /editor-shot-requested/);
+assert.match(rust, /"open-editor" => open_editor_window/);
+assert.match(rust, /tauri_plugin_dialog::init/);
+assert.match(rust, /window\.label\(\), "main" \| "editor"/);
+assert.doesNotMatch(rust, /unwrap_or\("NOTE"\)/);
+assert.match(rust, /pixelate_region\(&mut image, start, end, stroke_width\)/);
+assert.match(rust, /stroke_width\.clamp\(4, 48\)/);
+assert.match(rust, /shape_stroke_width_changes_rendered_pixels/);
+assert.match(rust, /blur_pixel_size_changes_rendered_pixels/);
+assert.match(rust, /max_line_width/);
 
 const desktopTheme = await readFile(new URL("../apps/desktop/src/app/globals.css", import.meta.url), "utf8");
 const landingTheme = await readFile(new URL("../apps/landing/app/globals.css", import.meta.url), "utf8");

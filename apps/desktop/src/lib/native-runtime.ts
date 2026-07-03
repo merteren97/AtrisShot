@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
+import { open } from "@tauri-apps/plugin-dialog";
 import { LazyStore } from "@tauri-apps/plugin-store";
 import type { CaptureRegion, CaptureRequest, CaptureResult, DisplayInfo, ShotHistoryEntry } from "@atris-shot/shot-core";
 
@@ -72,6 +73,16 @@ export const nativeRuntime = {
   },
   validateSaveFolder: (saveFolder: string) =>
     invoke<string>("validate_save_folder", { saveFolder }),
+  chooseSaveFolder: async (currentFolder?: string) => {
+    if (!isNativeRuntime()) return null;
+    const selected = await open({
+      directory: true,
+      multiple: false,
+      defaultPath: currentFolder || undefined,
+      title: "Choose AtrisShot save folder",
+    });
+    return typeof selected === "string" ? selected : null;
+  },
   openStorageFolder: (saveFolder: string) =>
     invoke<void>("open_storage_folder", { saveFolder }),
   applyAnnotations: (id: string, annotationsJson: string) =>
@@ -83,6 +94,8 @@ export const nativeRuntime = {
   showCaptureOverlay: () => invoke<void>("show_capture_overlay"),
   hideCaptureOverlay: () => invoke<void>("hide_capture_overlay"),
   openMainWindow: () => invoke<void>("open_main_window"),
+  openEditorWindow: (id: string) => invoke<void>("open_editor_window", { id }),
+  hideEditorWindow: () => invoke<void>("hide_editor_window"),
   startDragging: () => getCurrentWindow().startDragging(),
   emitShotCaptured: (entry: ShotHistoryEntry) => emit("shot-captured", entry),
   onShotCaptured: (callback: (entry: ShotHistoryEntry) => void) =>
@@ -90,6 +103,8 @@ export const nativeRuntime = {
   emitEditShotRequested: (entry: ShotHistoryEntry) => emit("edit-shot-requested", entry),
   onEditShotRequested: (callback: (entry: ShotHistoryEntry) => void) =>
     listen<ShotHistoryEntry>("edit-shot-requested", (event) => callback(event.payload)),
+  onEditorShotRequested: (callback: (id: string) => void) =>
+    listen<string>("editor-shot-requested", (event) => callback(event.payload)),
   emitDesktopSettingsChanged: () => emit("desktop-settings-changed"),
   onDesktopSettingsChanged: (callback: () => void) =>
     listen("desktop-settings-changed", callback),

@@ -188,6 +188,20 @@ fn validate_custom_save_folder(folder: &str) -> Result<PathBuf, String> {
         .map_err(|error| format!("Save folder could not be resolved: {error}"))
 }
 
+fn display_path(path: &Path) -> String {
+    let value = path.to_string_lossy().to_string();
+    #[cfg(target_os = "windows")]
+    {
+        if let Some(stripped) = value.strip_prefix(r"\\?\UNC\") {
+            return format!(r"\\{stripped}");
+        }
+        if let Some(stripped) = value.strip_prefix(r"\\?\") {
+            return stripped.to_string();
+        }
+    }
+    value
+}
+
 fn resolve_storage_folder(app: &AppHandle, save_folder: Option<&str>) -> Result<PathBuf, String> {
     let Some(folder) = save_folder.map(str::trim).filter(|value| !value.is_empty()) else {
         let path = shots_dir(app)?;
@@ -358,40 +372,74 @@ fn foreground_window_region() -> Option<CaptureRegion> {
 #[cfg(target_os = "windows")]
 fn window_region_at_point_native(x: i32, y: i32) -> Option<CaptureRegion> {
     use windows_sys::Win32::{
-        Foundation::{POINT, RECT},
+        Foundation::{HWND, POINT, RECT},
         UI::WindowsAndMessaging::{
-            GetAncestor, GetWindowRect, IsWindowVisible, WindowFromPoint, GA_ROOT,
+            GetAncestor, GetWindow, GetWindowRect, GetWindowTextLengthW, GetWindowTextW,
+            IsWindowVisible, WindowFromPoint, GA_ROOT, GW_HWNDNEXT,
         },
     };
 
+    unsafe fn root_window(hwnd: HWND) -> HWND {
+        let root = GetAncestor(hwnd, GA_ROOT);
+        if root.is_null() {
+            hwnd
+        } else {
+            root
+        }
+    }
+
+    unsafe fn window_title(hwnd: HWND) -> String {
+        let length = GetWindowTextLengthW(hwnd);
+        if length <= 0 {
+            return String::new();
+        }
+        let mut buffer = vec![0_u16; length as usize + 1];
+        let read = GetWindowTextW(hwnd, buffer.as_mut_ptr(), buffer.len() as i32);
+        if read <= 0 {
+            return String::new();
+        }
+        String::from_utf16_lossy(&buffer[..read as usize])
+    }
+
+    fn is_atrisshot_overlay_title(title: &str) -> bool {
+        matches!(title, "AtrisShot Capture" | "AtrisShot Result")
+    }
+
     unsafe {
         let hwnd = WindowFromPoint(POINT { x, y });
-        if hwnd.is_null() || IsWindowVisible(hwnd) == 0 {
+        if hwnd.is_null() {
             return None;
         }
-        let root = GetAncestor(hwnd, GA_ROOT);
-        let target = if root.is_null() { hwnd } else { root };
-        let mut rect = RECT {
-            left: 0,
-            top: 0,
-            right: 0,
-            bottom: 0,
-        };
-        if GetWindowRect(target, &mut rect) == 0 {
-            return None;
+        let mut target = root_window(hwnd);
+        for _ in 0..24 {
+            if target.is_null() {
+                return None;
+            }
+            if IsWindowVisible(target) != 0 {
+                let title = window_title(target);
+                let mut rect = RECT {
+                    left: 0,
+                    top: 0,
+                    right: 0,
+                    bottom: 0,
+                };
+                if GetWindowRect(target, &mut rect) != 0 && !is_atrisshot_overlay_title(&title) {
+                    let width = rect.right.saturating_sub(rect.left);
+                    let height = rect.bottom.saturating_sub(rect.top);
+                    if width >= 32 && height >= 32 {
+                        return Some(CaptureRegion {
+                            display_id: "clicked-window".to_string(),
+                            x: rect.left,
+                            y: rect.top,
+                            width: width as u32,
+                            height: height as u32,
+                        });
+                    }
+                }
+            }
+            target = GetWindow(target, GW_HWNDNEXT);
         }
-        let width = rect.right.saturating_sub(rect.left);
-        let height = rect.bottom.saturating_sub(rect.top);
-        if width < 32 || height < 32 {
-            return None;
-        }
-        Some(CaptureRegion {
-            display_id: "clicked-window".to_string(),
-            x: rect.left,
-            y: rect.top,
-            width: width as u32,
-            height: height as u32,
-        })
+        None
     }
 }
 
@@ -678,12 +726,17 @@ fn draw_ellipse(
     }
 }
 
-fn pixelate_region(image: &mut RgbaImage, start: &AnnotationPoint, end: &AnnotationPoint) {
+fn pixelate_region(
+    image: &mut RgbaImage,
+    start: &AnnotationPoint,
+    end: &AnnotationPoint,
+    stroke_width: u32,
+) {
     let left = start.x.min(end.x).max(0.0) as u32;
     let top = start.y.min(end.y).max(0.0) as u32;
     let right = start.x.max(end.x).min(image.width() as f32) as u32;
     let bottom = start.y.max(end.y).min(image.height() as f32) as u32;
-    let block = 12;
+    let block = stroke_width.clamp(4, 48);
     let mut y = top;
     while y < bottom {
         let mut x = left;
@@ -769,14 +822,27 @@ fn glyph_rows(character: char) -> [u8; 7] {
 fn draw_text(
     image: &mut RgbaImage,
     origin: &AnnotationPoint,
+    max_width: f32,
     text: &str,
     color: Rgba<u8>,
     font_size: u32,
 ) {
     let scale = (font_size.max(12) / 7).max(2) as i32;
-    let mut x = origin.x.round() as i32;
-    let y = origin.y.round() as i32;
-    for character in text.chars().take(80) {
+    let origin_x = origin.x.round() as i32;
+    let mut x = origin_x;
+    let mut y = origin.y.round() as i32;
+    let glyph_advance = 6 * scale;
+    let max_line_width = max_width.max((glyph_advance * 2) as f32).round() as i32;
+    for character in text.chars().take(300) {
+        if character == '\n' {
+            x = origin_x;
+            y += 9 * scale;
+            continue;
+        }
+        if x > origin_x && x + glyph_advance > origin_x + max_line_width {
+            x = origin_x;
+            y += 9 * scale;
+        }
         let rows = glyph_rows(character);
         for (row_index, row) in rows.iter().enumerate() {
             for col in 0..5 {
@@ -823,14 +889,20 @@ fn render_annotations(
                     draw_line(&mut image, &pair[0], &pair[1], color, stroke_width);
                 }
             }
-            "blur" => pixelate_region(&mut image, start, end),
-            "text" => draw_text(
-                &mut image,
-                start,
-                annotation.text.as_deref().unwrap_or("NOTE"),
-                color,
-                annotation.font_size.unwrap_or(24),
-            ),
+            "blur" => pixelate_region(&mut image, start, end, stroke_width),
+            "text" => {
+                let text = annotation.text.as_deref().unwrap_or("").trim();
+                if !text.is_empty() {
+                    draw_text(
+                        &mut image,
+                        start,
+                        (end.x - start.x).abs().max(40.0),
+                        text,
+                        color,
+                        annotation.font_size.unwrap_or(24),
+                    );
+                }
+            }
             _ => draw_rect(&mut image, start, end, color, stroke_width),
         }
     }
@@ -994,12 +1066,7 @@ fn capture_shot(
         .as_deref()
         .unwrap_or("corner-overlay")
     {
-        "open-editor" => {
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.show();
-                let _ = window.set_focus();
-            }
-        }
+        "open-editor" => open_editor_window(app.clone(), entry.id.clone()),
         "save-silently" => {}
         _ => show_overlay(app.clone(), request.overlay_corner.clone()),
     }
@@ -1162,9 +1229,10 @@ fn validate_save_folder(app: AppHandle, save_folder: String) -> Result<String, S
         }
         return Ok(String::new());
     }
-    Ok(resolve_storage_folder(&app, Some(&save_folder))?
-        .to_string_lossy()
-        .to_string())
+    Ok(display_path(&resolve_storage_folder(
+        &app,
+        Some(&save_folder),
+    )?))
 }
 
 #[tauri::command]
@@ -1322,6 +1390,43 @@ fn open_main_window(app: AppHandle) {
     }
 }
 
+fn center_window(window: &tauri::WebviewWindow, app: &AppHandle) {
+    let monitor = window
+        .current_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| app.primary_monitor().ok().flatten());
+    let Some(monitor) = monitor else {
+        return;
+    };
+    let Ok(size) = window.outer_size() else {
+        return;
+    };
+    let monitor_position = monitor.position();
+    let monitor_size = monitor.size();
+    let x = monitor_position.x + ((monitor_size.width.saturating_sub(size.width)) / 2) as i32;
+    let y = monitor_position.y + ((monitor_size.height.saturating_sub(size.height)) / 2) as i32;
+    let _ = window.set_position(Position::Physical(PhysicalPosition { x, y }));
+}
+
+#[tauri::command]
+fn open_editor_window(app: AppHandle, id: String) {
+    if let Some(window) = app.get_webview_window("editor") {
+        center_window(&window, &app);
+        let _ = window.show();
+        center_window(&window, &app);
+        let _ = window.set_focus();
+        let _ = app.emit("editor-shot-requested", id);
+    }
+}
+
+#[tauri::command]
+fn hide_editor_window(app: AppHandle) {
+    if let Some(window) = app.get_webview_window("editor") {
+        let _ = window.hide();
+    }
+}
+
 fn build_tray_menu(app: &AppHandle, locale: &str) -> tauri::Result<Menu<tauri::Wry>> {
     let turkish = locale == "tr";
     let open = MenuItem::with_id(
@@ -1385,6 +1490,7 @@ fn restart_application(app: AppHandle) {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -1471,11 +1577,13 @@ pub fn run() {
             show_capture_overlay,
             hide_capture_overlay,
             open_main_window,
+            open_editor_window,
+            hide_editor_window,
             set_tray_locale,
             restart_application,
         ])
         .on_window_event(|window, event| {
-            if window.label() == "main" {
+            if matches!(window.label(), "main" | "editor") {
                 if let WindowEvent::CloseRequested { api, .. } = event {
                     api.prevent_close();
                     let _ = window.hide();
@@ -1618,6 +1726,59 @@ mod tests {
             overlay_position("top-right", &monitor_position, &monitor_size, &window_size),
             PhysicalPosition { x: 1676, y: 224 }
         );
+    }
+
+    #[test]
+    fn shape_stroke_width_changes_rendered_pixels() {
+        fn non_white_pixels(image: &RgbaImage) -> usize {
+            image
+                .pixels()
+                .filter(|pixel| **pixel != Rgba([255, 255, 255, 255]))
+                .count()
+        }
+
+        let start = AnnotationPoint { x: 8.0, y: 8.0 };
+        let end = AnnotationPoint { x: 44.0, y: 34.0 };
+        let color = Rgba([14, 165, 233, 245]);
+
+        let mut thin_rect = RgbaImage::from_pixel(64, 48, Rgba([255, 255, 255, 255]));
+        let mut thick_rect = thin_rect.clone();
+        draw_rect(&mut thin_rect, &start, &end, color, 1);
+        draw_rect(&mut thick_rect, &start, &end, color, 7);
+        assert!(non_white_pixels(&thick_rect) > non_white_pixels(&thin_rect));
+
+        let mut thin_ellipse = RgbaImage::from_pixel(64, 48, Rgba([255, 255, 255, 255]));
+        let mut thick_ellipse = thin_ellipse.clone();
+        draw_ellipse(&mut thin_ellipse, &start, &end, color, 1);
+        draw_ellipse(&mut thick_ellipse, &start, &end, color, 7);
+        assert!(non_white_pixels(&thick_ellipse) > non_white_pixels(&thin_ellipse));
+    }
+
+    #[test]
+    fn blur_pixel_size_changes_rendered_pixels() {
+        let mut small_pixel_size = RgbaImage::new(72, 48);
+        for y in 0..small_pixel_size.height() {
+            for x in 0..small_pixel_size.width() {
+                small_pixel_size.put_pixel(
+                    x,
+                    y,
+                    Rgba([
+                        (x * 3).min(255) as u8,
+                        (y * 5).min(255) as u8,
+                        ((x + y) * 2).min(255) as u8,
+                        255,
+                    ]),
+                );
+            }
+        }
+        let mut large_pixel_size = small_pixel_size.clone();
+        let start = AnnotationPoint { x: 0.0, y: 0.0 };
+        let end = AnnotationPoint { x: 72.0, y: 48.0 };
+
+        pixelate_region(&mut small_pixel_size, &start, &end, 4);
+        pixelate_region(&mut large_pixel_size, &start, &end, 36);
+
+        assert_ne!(small_pixel_size.as_raw(), large_pixel_size.as_raw());
     }
 
     #[test]
