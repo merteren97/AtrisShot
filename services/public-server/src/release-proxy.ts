@@ -1,8 +1,37 @@
-import { Router } from "express";
+import { Router, type Request } from "express";
 
 type Asset = { id: number; name: string };
 type Release = { tag_name?: string; body?: string; published_at?: string; assets?: Asset[] };
 type Options = { fetchImpl?: typeof fetch; publicBaseUrl?: string };
+
+function firstForwardedValue(value: string | undefined) {
+  return value?.split(",")[0]?.trim();
+}
+
+function isLoopbackBaseUrl(value: string) {
+  try {
+    const hostname = new URL(value).hostname.toLowerCase();
+    return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+  } catch {
+    return false;
+  }
+}
+
+function requestBaseUrl(request: Request) {
+  const forwardedProto = firstForwardedValue(request.get("x-forwarded-proto"));
+  const forwardedHost = firstForwardedValue(request.get("x-forwarded-host"));
+  const host = forwardedHost || request.get("host");
+  if (!host) return "";
+  return `${forwardedProto || request.protocol}://${host}`.replace(/\/$/, "");
+}
+
+export function resolvePublicBaseUrl(request: Request, configuredBaseUrl?: string) {
+  const configured = configuredBaseUrl?.trim().replace(/\/$/, "");
+  const requestBase = requestBaseUrl(request);
+  if (!configured) return requestBase;
+  if (requestBase && isLoopbackBaseUrl(configured) && !isLoopbackBaseUrl(requestBase)) return requestBase;
+  return configured;
+}
 
 export function semverCompare(a: string, b: string) {
   const parse = (value: string) => {
@@ -75,7 +104,7 @@ export function createReleaseRouter(options: Options = {}) {
       const signatureResponse = await fetchImpl(`https://api.github.com/repos/${owner()}/${repo()}/releases/assets/${signature.id}`, { headers: headers("application/octet-stream") });
       const signatureText = signatureResponse.ok ? (await signatureResponse.text()).trim() : "";
       if (!signatureText) return response.status(204).end();
-      const base = (options.publicBaseUrl || process.env.SHOT_PUBLIC_BASE_URL || `${request.protocol}://${request.get("host")}`).replace(/\/$/, "");
+      const base = resolvePublicBaseUrl(request, options.publicBaseUrl || process.env.SHOT_PUBLIC_BASE_URL);
       return response.json({ version: release.tag_name.replace(/^v/, ""), pub_date: release.published_at, url: `${base}/api/releases/download/${asset.id}`, signature: signatureText, notes: release.body || "" });
     } catch { return response.status(204).end(); }
   });

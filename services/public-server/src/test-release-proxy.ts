@@ -6,9 +6,10 @@ function assert(value: unknown, message: string): asserts value {
   if (!value) throw new Error(message);
 }
 
-async function withReleaseServer(fetchImpl: typeof fetch, run: (port: number) => Promise<void>) {
+async function withReleaseServer(fetchImpl: typeof fetch, run: (port: number) => Promise<void>, publicBaseUrl = "https://shot.atrishub.com") {
   const app = express();
-  app.use("/api/releases", createReleaseRouter({ fetchImpl, publicBaseUrl: "https://shot.atrishub.com" }));
+  app.set("trust proxy", true);
+  app.use("/api/releases", createReleaseRouter({ fetchImpl, publicBaseUrl }));
   const server = app.listen(0);
   await new Promise<void>((resolve) => server.once("listening", resolve));
   try {
@@ -85,6 +86,25 @@ await withReleaseServer(fetchImpl, async (port) => {
   assert(platformDownload.status === 302, "platform download must resolve a release asset");
   assert(platformDownload.headers.get("location") === "/api/releases/download/1", "platform download must use the public proxy");
 });
+
+const previousPublicBaseUrl = process.env.SHOT_PUBLIC_BASE_URL;
+process.env.SHOT_PUBLIC_BASE_URL = "http://localhost:3008";
+await withReleaseServer(fetchImpl, async (port) => {
+  const update = await fetch(`http://127.0.0.1:${port}/api/releases/update/windows-x86_64/0.1.0`, {
+    headers: {
+      "x-forwarded-host": "shot.atrishub.com",
+      "x-forwarded-proto": "https",
+    },
+  });
+  assert(update.status === 200, "forwarded production update must be returned");
+  const body = await update.json();
+  assert(body.url === "https://shot.atrishub.com/api/releases/download/1", "localhost env must not leak into production updater metadata");
+}, "");
+if (previousPublicBaseUrl === undefined) {
+  delete process.env.SHOT_PUBLIC_BASE_URL;
+} else {
+  process.env.SHOT_PUBLIC_BASE_URL = previousPublicBaseUrl;
+}
 
 const unsignedFetch: typeof fetch = async (input) => {
   const url = String(input);

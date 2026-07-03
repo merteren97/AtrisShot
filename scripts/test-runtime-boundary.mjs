@@ -76,11 +76,17 @@ const publicServer = await readFile(
   new URL("../services/public-server/src/server.ts", import.meta.url),
   "utf8",
 );
+const releaseProxy = await readFile(new URL("../services/public-server/src/release-proxy.ts", import.meta.url), "utf8");
+const releaseProxyTest = await readFile(new URL("../services/public-server/src/test-release-proxy.ts", import.meta.url), "utf8");
 const releaseWorkflow = await readFile(new URL("../.github/workflows/release.yml", import.meta.url), "utf8");
 const deployWorkflow = await readFile(new URL("../.github/workflows/deploy.yml", import.meta.url), "utf8");
 const validateWorkflow = await readFile(new URL("../.github/workflows/validate.yml", import.meta.url), "utf8");
 const workflowSources = [releaseWorkflow, deployWorkflow, validateWorkflow].join("\n");
 assert.match(publicServer, /createReleaseRouter/);
+assert.match(publicServer, /trust proxy/);
+assert.match(releaseProxy, /resolvePublicBaseUrl/);
+assert.match(releaseProxy, /x-forwarded-host/);
+assert.match(releaseProxyTest, /localhost env must not leak into production updater metadata/);
 assert.doesNotMatch(publicServer, /PrismaClient|JWT_SECRET|component|microphone|transcribe/i);
 assert.doesNotMatch(workflowSources, /COMPONENT_|component-production|Release AtrisShot Components|R2_|shot-components|voice-components/i);
 

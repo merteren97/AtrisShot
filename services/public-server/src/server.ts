@@ -14,6 +14,7 @@ const port = Number(process.env.PORT || 3008);
 const host = process.env.HOST || "127.0.0.1";
 
 app.disable("x-powered-by");
+app.set("trust proxy", true);
 app.get("/health", (_request, response) => {
   response.json({ status: "ok", service: "atris-shot-public" });
 });
