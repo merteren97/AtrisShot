@@ -21,12 +21,88 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { loadDesktopSettings } from "@/lib/desktop-settings";
 import { isNativeRuntime, nativeRuntime } from "@/lib/native-runtime";
+import { useUiPreferences, type Locale } from "@/lib/ui-preferences";
 import { cn } from "@/lib/utils";
 
 const TOOL_SWATCHES = ["#0ea5e9", "#ef4444", "#22c55e", "#f59e0b", "#ffffff", "#111827"];
 const DEFAULT_BLUR_PIXEL_SIZE = 12;
 
 type EditorStatus = "Loading" | "Ready" | "Applied" | "Missing" | "Empty" | "Failed";
+
+const editorCopy = {
+  en: {
+    title: "Screenshot editor",
+    emptyTitle: "AtrisShot Editor",
+    emptySubtitle: "Open a screenshot from History or Overlay.",
+    reload: "Reload screenshot",
+    undo: "Undo",
+    clear: "Clear annotations",
+    apply: "Apply",
+    localFileMissing: "Local file missing",
+    localFileMissingDescription: "This history record exists, but the screenshot file is no longer available on this device.",
+    noScreenshot: "No screenshot selected",
+    previewUnavailable: "Preview unavailable",
+    loading: "Loading screenshot",
+    emptyDescription: "Use History or the result overlay to open a screenshot in this editor.",
+    previewUnavailableDescription: "The local file exists, but its preview could not be loaded.",
+    preparing: "Preparing the editor window.",
+    pending: "pending",
+    pixelSize: "Pixel size",
+    stroke: "Stroke",
+    textSize: "Text size",
+    typing: "Typing",
+    clickToWrite: "Click canvas to write",
+    deleteSelected: "Delete selected",
+    customColor: "Custom color",
+    tools: {
+      rectangle: "Rectangle",
+      ellipse: "Ellipse",
+      line: "Line",
+      arrow: "Arrow",
+      pen: "Pen",
+      text: "Text",
+      blur: "Blur",
+    },
+  },
+  tr: {
+    title: "Ekran görüntüsü editörü",
+    emptyTitle: "AtrisShot Editör",
+    emptySubtitle: "Geçmişten veya sonuç overlay'inden bir ekran görüntüsü aç.",
+    reload: "Ekran görüntüsünü yenile",
+    undo: "Geri al",
+    clear: "İşaretlemeleri temizle",
+    apply: "Onayla",
+    localFileMissing: "Yerel dosya eksik",
+    localFileMissingDescription: "Bu geçmiş kaydı duruyor, fakat ekran görüntüsü dosyası artık bu cihazda yok.",
+    noScreenshot: "Ekran görüntüsü seçilmedi",
+    previewUnavailable: "Önizleme kullanılamıyor",
+    loading: "Ekran görüntüsü yükleniyor",
+    emptyDescription: "Bu editörde açmak için Geçmişten veya sonuç overlay'inden bir ekran görüntüsü seç.",
+    previewUnavailableDescription: "Yerel dosya var, fakat önizlemesi yüklenemedi.",
+    preparing: "Editör penceresi hazırlanıyor.",
+    pending: "bekliyor",
+    pixelSize: "Piksel boyutu",
+    stroke: "Çizgi",
+    textSize: "Yazı boyutu",
+    typing: "Yazılıyor",
+    clickToWrite: "Yazmak için canvas'a tıkla",
+    deleteSelected: "Seçileni sil",
+    customColor: "Özel renk",
+    tools: {
+      rectangle: "Dikdörtgen",
+      ellipse: "Elips",
+      line: "Çizgi",
+      arrow: "Ok",
+      pen: "Kalem",
+      text: "Metin",
+      blur: "Bulanıklaştır",
+    },
+  },
+} as const;
+
+type EditorText = Omit<Record<keyof typeof editorCopy.en, string>, "tools"> & {
+  tools: Record<ShotAnnotation["tool"], string>;
+};
 
 function useShotDataUrl(path?: string | null) {
   const [dataUrl, setDataUrl] = useState("");
@@ -154,6 +230,8 @@ function ShotEditor({
   onApply: (annotations: ShotAnnotation[]) => void;
   onReload: () => void;
 }) {
+  const { locale } = useUiPreferences();
+  const text = editorCopy[locale];
   const canvasRef = useRef<HTMLDivElement | null>(null);
   const textInputRef = useRef<HTMLTextAreaElement | null>(null);
   const [activeTool, setActiveTool] = useState<ShotAnnotation["tool"]>("rectangle");
@@ -172,6 +250,7 @@ function ShotEditor({
   } | null>(null);
 
   const imagePath = entry ? entry.editedPath || entry.originalPath : "";
+  const imagePathDisplay = formatPathForDisplay(imagePath);
   const { dataUrl: imageUrl, failed: imageFailed } = useShotDataUrl(imagePath);
   const selectedAnnotation = annotations.find((annotation) => annotation.id === selectedAnnotationId) || null;
   const canApply = Boolean(entry && !fileMissing && normalizeAnnotations(annotations).length > 0);
@@ -263,11 +342,14 @@ function ShotEditor({
       setStrokeWidth(hit.strokeWidth);
       if (hit.fontSize) setFontSize(hit.fontSize);
       if (hit.tool === "text") {
-        if (hit.id === selectedAnnotationId || event.detail > 1) {
+        if (event.detail > 1) {
           setEditingTextId(hit.id);
-        } else {
-          setEditingTextId(null);
+          return;
         }
+        event.currentTarget.setPointerCapture(event.pointerId);
+        setEditingTextId(null);
+        rememberUndo();
+        setEditInteraction({ id: hit.id, mode: "move", start: point, originalPoints: hit.points });
         return;
       }
       event.currentTarget.setPointerCapture(event.pointerId);
@@ -327,7 +409,7 @@ function ShotEditor({
           if (editInteraction.mode === "resize") {
             const first = editInteraction.originalPoints[0] || point;
             const next = { ...annotation, points: [first, clampPoint(point, entry)] };
-            return annotation.tool === "text" ? resizeTextAnnotation(next, null, entry) : next;
+            return annotation.tool === "text" ? resizeTextAnnotation(next, null, entry, Math.abs(point.y - first.y)) : next;
           }
           return {
             ...annotation,
@@ -444,24 +526,24 @@ function ShotEditor({
     <div className="flex h-full min-h-0 flex-col">
       <header className="grid min-h-16 shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-4 border-b bg-card/95 px-4 backdrop-blur">
         <div className="min-w-0">
-          <p className="truncate text-sm font-semibold">{entry ? "Screenshot editor" : "AtrisShot Editor"}</p>
-          <p className="truncate text-xs text-muted-foreground">{entry ? imagePath : loadError || "Open a screenshot from History or Overlay."}</p>
+          <p className="truncate text-sm font-semibold">{entry ? text.title : text.emptyTitle}</p>
+          <p className="truncate text-xs text-muted-foreground">{entry ? imagePathDisplay : loadError || text.emptySubtitle}</p>
         </div>
 
-        <ToolRail activeTool={activeTool} onSelect={setActiveToolAndSync} />
+        <ToolRail activeTool={activeTool} labels={text.tools} onSelect={setActiveToolAndSync} />
 
         <div className="flex justify-end gap-2">
-          <Button type="button" size="icon" variant="ghost" aria-label="Reload screenshot" title="Reload screenshot" onClick={onReload}>
+          <Button type="button" size="icon" variant="ghost" aria-label={text.reload} title={text.reload} onClick={onReload}>
             <RotateCcw className="h-4 w-4" />
           </Button>
-          <Button type="button" size="icon" variant="ghost" aria-label="Undo" title="Undo (Ctrl+Z)" disabled={!undoStack.length} onClick={undo}>
+          <Button type="button" size="icon" variant="ghost" aria-label={text.undo} title={`${text.undo} (Ctrl+Z)`} disabled={!undoStack.length} onClick={undo}>
             <ArrowUpRight className="h-4 w-4 rotate-180" />
           </Button>
-          <Button type="button" size="icon" variant="ghost" aria-label="Clear annotations" title="Clear annotations" disabled={!annotations.length} onClick={clear}>
+          <Button type="button" size="icon" variant="ghost" aria-label={text.clear} title={text.clear} disabled={!annotations.length} onClick={clear}>
             <Trash2 className="h-4 w-4" />
           </Button>
           <Button type="button" disabled={!canApply} onClick={() => onApply(annotations)}>
-            <Check className="h-4 w-4" /> Apply
+            <Check className="h-4 w-4" /> {text.apply}
           </Button>
         </div>
       </header>
@@ -477,12 +559,13 @@ function ShotEditor({
         onStrokeWidthChange={updateStrokeWidth}
         onFontSizeChange={updateFontSize}
         onDeleteSelected={() => selectedAnnotationId && removeAnnotation(selectedAnnotationId)}
+        text={text}
       />
 
       <section className="min-h-0 flex-1 overflow-hidden p-4">
         <div className="relative flex h-full items-center justify-center overflow-hidden rounded-lg border bg-card/40 p-4">
           {entry && fileMissing ? (
-            <EditorState icon={Image} title="Local file missing" description="This history record exists, but the screenshot file is no longer available on this device." />
+            <EditorState icon={Image} title={text.localFileMissing} description={text.localFileMissingDescription} />
           ) : entry && imageUrl ? (
             <div
               ref={canvasRef}
@@ -516,15 +599,15 @@ function ShotEditor({
           ) : (
             <EditorState
               icon={Image}
-              title={status === "Empty" ? "No screenshot selected" : imageFailed ? "Preview unavailable" : "Loading screenshot"}
+              title={status === "Empty" ? text.noScreenshot : imageFailed ? text.previewUnavailable : text.loading}
               description={
                 status === "Empty"
-                  ? "Use History or the result overlay to open a screenshot in this editor."
+                  ? text.emptyDescription
                   : imageFailed
-                    ? "The local file exists, but its preview could not be loaded."
+                    ? text.previewUnavailableDescription
                     : entry
                       ? `${entry.width} x ${entry.height}`
-                      : loadError || "Preparing the editor window."
+                      : loadError || text.preparing
               }
             />
           )}
@@ -532,7 +615,7 @@ function ShotEditor({
           <div className="pointer-events-none absolute bottom-3 left-3 flex items-center gap-2">
             <Badge>{status}</Badge>
             {selectedAnnotation && <Badge>{selectedAnnotation.tool}</Badge>}
-            {annotations.length > 0 && <Badge>{normalizeAnnotations(annotations).length} pending</Badge>}
+            {annotations.length > 0 && <Badge>{normalizeAnnotations(annotations).length} {text.pending}</Badge>}
           </div>
         </div>
       </section>
@@ -540,15 +623,23 @@ function ShotEditor({
   );
 }
 
-function ToolRail({ activeTool, onSelect }: { activeTool: ShotAnnotation["tool"]; onSelect: (tool: ShotAnnotation["tool"]) => void }) {
+function ToolRail({
+  activeTool,
+  labels,
+  onSelect,
+}: {
+  activeTool: ShotAnnotation["tool"];
+  labels: Record<ShotAnnotation["tool"], string>;
+  onSelect: (tool: ShotAnnotation["tool"]) => void;
+}) {
   const tools: Array<{ tool: ShotAnnotation["tool"]; icon: LucideIcon; label: string }> = [
-    { tool: "rectangle", icon: RectangleHorizontal, label: "Rectangle" },
-    { tool: "ellipse", icon: Circle, label: "Ellipse" },
-    { tool: "line", icon: Minus, label: "Line" },
-    { tool: "arrow", icon: ArrowUpRight, label: "Arrow" },
-    { tool: "pen", icon: PenLine, label: "Pen" },
-    { tool: "text", icon: Type, label: "Text" },
-    { tool: "blur", icon: Layers, label: "Blur" },
+    { tool: "rectangle", icon: RectangleHorizontal, label: labels.rectangle },
+    { tool: "ellipse", icon: Circle, label: labels.ellipse },
+    { tool: "line", icon: Minus, label: labels.line },
+    { tool: "arrow", icon: ArrowUpRight, label: labels.arrow },
+    { tool: "pen", icon: PenLine, label: labels.pen },
+    { tool: "text", icon: Type, label: labels.text },
+    { tool: "blur", icon: Layers, label: labels.blur },
   ];
 
   return (
@@ -587,6 +678,7 @@ function ContextToolbar({
   onStrokeWidthChange,
   onFontSizeChange,
   onDeleteSelected,
+  text,
 }: {
   activeTool: ShotAnnotation["tool"];
   selectedAnnotation: ShotAnnotation | null;
@@ -598,6 +690,7 @@ function ContextToolbar({
   onStrokeWidthChange: (width: number) => void;
   onFontSizeChange: (size: number) => void;
   onDeleteSelected: () => void;
+  text: EditorText;
 }) {
   const isText = activeTool === "text";
   const isBlur = activeTool === "blur";
@@ -618,7 +711,7 @@ function ContextToolbar({
               />
             ))}
             <input
-              aria-label="Custom color"
+              aria-label={text.customColor}
               className="h-7 w-9 cursor-pointer rounded-full border bg-background p-0"
               type="color"
               value={draftColor}
@@ -629,7 +722,7 @@ function ContextToolbar({
 
         {!isText && (
           <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-            {isBlur ? "Pixel size" : "Stroke"}
+            {isBlur ? text.pixelSize : text.stroke}
             <input
               className="w-32 accent-primary"
               type="range"
@@ -645,17 +738,17 @@ function ContextToolbar({
         {isText && (
           <>
             <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-              Text size
+              {text.textSize}
               <input className="w-32 accent-primary" type="range" min={12} max={64} value={fontSize} onChange={(event) => onFontSizeChange(Number(event.target.value))} />
               <span className="w-9 text-foreground">{fontSize}px</span>
             </label>
-            <Badge>{editingText ? "Typing" : "Click canvas to write"}</Badge>
+            <Badge>{editingText ? text.typing : text.clickToWrite}</Badge>
           </>
         )}
 
         {selectedAnnotation && (
           <Button type="button" size="sm" variant="ghost" onClick={onDeleteSelected}>
-            <Trash2 className="h-3.5 w-3.5" /> Delete selected
+            <Trash2 className="h-3.5 w-3.5" /> {text.deleteSelected}
           </Button>
         )}
       </div>
@@ -827,7 +920,7 @@ function AnnotationPreview({
           top,
           width: boxWidth,
           height: boxHeight,
-          overflow: isText ? "visible" : undefined,
+          overflow: isText ? "hidden" : undefined,
           minWidth: isText ? 80 : undefined,
           minHeight: isText ? 32 : undefined,
           borderColor: annotation.color,
@@ -899,13 +992,13 @@ function clampPoint(point: { x: number; y: number }, entry: ShotHistoryEntry | n
   };
 }
 
-function resizeTextAnnotation(annotation: ShotAnnotation, element: HTMLTextAreaElement | null, entry: ShotHistoryEntry | null) {
+function resizeTextAnnotation(annotation: ShotAnnotation, element: HTMLTextAreaElement | null, entry: ShotHistoryEntry | null, minimumHeight = 0) {
   if (annotation.tool !== "text" || !entry) return annotation;
   const first = annotation.points[0];
   const second = annotation.points[1] || { x: first.x + 180, y: first.y + 48 };
   const width = Math.max(80, Math.abs(second.x - first.x));
   const fontSize = Math.max(12, Math.min(64, annotation.fontSize || 24));
-  let height = estimateTextHeight(annotation.text || "", width, fontSize);
+  let height = Math.max(minimumHeight, estimateTextHeight(annotation.text || "", width, fontSize));
 
   if (element) {
     const canvas = element.closest("[data-editor-canvas]") as HTMLElement | null;
@@ -947,6 +1040,12 @@ function estimateTextHeight(text: string, width: number, fontSize: number) {
     return total + Math.max(1, wrappedLines);
   }, 0);
   return Math.max(32, Math.ceil(lines * fontSize * 1.35 + fontSize * 0.8 + 12));
+}
+
+function formatPathForDisplay(path: string) {
+  if (path.startsWith("\\\\?\\UNC\\")) return `\\\\${path.slice("\\\\?\\UNC\\".length)}`;
+  if (path.startsWith("\\\\?\\")) return path.slice("\\\\?\\".length);
+  return path;
 }
 
 function distanceToSegment(point: { x: number; y: number }, start: { x: number; y: number }, end: { x: number; y: number }) {

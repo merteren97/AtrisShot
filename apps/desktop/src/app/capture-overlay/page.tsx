@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import { Check, Crop, Image, LoaderCircle, MousePointer2, X } from "lucide-react";
 import type { CaptureRegion, DisplayInfo, ShotSettings } from "@atris-shot/shot-core";
-import { Button } from "@/components/ui/button";
 import { DEFAULT_SHOT_SETTINGS } from "@atris-shot/shot-core";
+import { Button } from "@/components/ui/button";
 import { loadDesktopSettings } from "@/lib/desktop-settings";
 import { nativeRuntime } from "@/lib/native-runtime";
 import { useUiPreferences } from "@/lib/ui-preferences";
@@ -13,15 +13,14 @@ type Point = { x: number; y: number };
 type DragState = { start: Point; current: Point } | null;
 
 const dragThreshold = 8;
-const hoverLookupMs = 180;
+const hoverLookupMs = 120;
 
 const overlayCopy = {
   en: {
     saving: "Saving screenshot...",
     locked: "Window selected. Press Enter to save, Esc to cancel, or click another window.",
-    hover: "Hover a window, click to select, press Enter to save, or drag a region.",
+    hover: "Move over a window, click to select it, press Enter to save, or drag a region.",
     drag: "Release to capture region",
-    focused: "Focused window",
     selected: "Selected window",
     hovered: "Window under cursor",
     displayUnavailable: "No display is available.",
@@ -31,7 +30,6 @@ const overlayCopy = {
     locked: "Pencere seçildi. Kaydetmek için Enter, iptal için Esc veya başka pencere seçmek için tıkla.",
     hover: "Pencere üzerinde gez, seçmek için tıkla, kaydetmek için Enter ya da bölge için sürükle.",
     drag: "Bölgeyi yakalamak için bırak",
-    focused: "Odaklı pencere",
     selected: "Seçili pencere",
     hovered: "İmleç altındaki pencere",
     displayUnavailable: "Kullanılabilir ekran yok.",
@@ -44,18 +42,16 @@ export default function CaptureOverlayPage() {
   const [displays, setDisplays] = useState<DisplayInfo[]>([]);
   const [settings, setSettings] = useState<ShotSettings>(DEFAULT_SHOT_SETTINGS);
   const [drag, setDrag] = useState<DragState>(null);
-  const [focusTarget, setFocusTarget] = useState<CaptureRegion | null>(null);
   const [hoverRegion, setHoverRegion] = useState<CaptureRegion | null>(null);
   const [lockedRegion, setLockedRegion] = useState<CaptureRegion | null>(null);
-  const [hoverTouched, setHoverTouched] = useState(false);
   const [capturing, setCapturing] = useState(false);
   const [error, setError] = useState("");
   const pointerStarted = useRef(false);
   const lookupRef = useRef<{ point: Point; timer: number | null; running: boolean }>({ point: { x: 0, y: 0 }, timer: null, running: false });
 
   const bounds = useMemo(() => getVirtualBounds(displays), [displays]);
-  const activeDisplay = displays[0];
-  const selectedRegion = lockedRegion || hoverRegion || (!hoverTouched ? focusTarget : null);
+  const primaryDisplay = displays.find((display) => display.primary) || displays[0];
+  const selectedRegion = lockedRegion || hoverRegion;
 
   const toVirtualPoint = useCallback(
     (event: PointerEvent<HTMLElement>): Point => ({
@@ -67,7 +63,10 @@ export default function CaptureOverlayPage() {
 
   const capture = useCallback(
     async (region: CaptureRegion | null, targetDisplay?: DisplayInfo) => {
-      const target = targetDisplay || (region ? displays.find((display) => display.id === region.displayId) : activeDisplay) || activeDisplay;
+      const target =
+        targetDisplay ||
+        (region ? displayForRegion(displays, region) : null) ||
+        primaryDisplay;
       if (!target) {
         setError(text.displayUnavailable);
         return false;
@@ -82,8 +81,6 @@ export default function CaptureOverlayPage() {
           setError(text.displayUnavailable);
           return false;
         }
-        await nativeRuntime.hideCaptureOverlay();
-        await sleep(80);
         await nativeRuntime.captureShot({
           mode: resolvedRegion ? "region" : "display",
           displayId: target.id,
@@ -105,7 +102,7 @@ export default function CaptureOverlayPage() {
         setCapturing(false);
       }
     },
-    [activeDisplay, displays, settings, text.displayUnavailable],
+    [displays, primaryDisplay, settings, text.displayUnavailable],
   );
 
   const updateHoveredWindow = useCallback(
@@ -114,10 +111,8 @@ export default function CaptureOverlayPage() {
       lookupRef.current.running = true;
       try {
         const region = await nativeRuntime.windowRegionAtPoint(point.x, point.y);
-        setHoverTouched(true);
-        setHoverRegion(region);
+        setHoverRegion((current) => (sameRegion(current, region) ? current : region));
       } catch {
-        setHoverTouched(true);
         setHoverRegion(null);
       } finally {
         lookupRef.current.running = false;
@@ -141,28 +136,45 @@ export default function CaptureOverlayPage() {
   useEffect(() => {
     document.documentElement.classList.add("overlay-window");
     document.body.classList.add("overlay-window");
-    void nativeRuntime.currentWindowDisplay().then((display) => setDisplays([display])).catch((reason) => setError(String(reason)));
-    void nativeRuntime.focusedWindowRegion().then((region) => {
-      setFocusTarget(region);
-      setHoverRegion(region);
-      setHoverTouched(false);
-    }).catch(() => undefined);
+    void nativeRuntime.listDisplays().then(setDisplays).catch((reason) => setError(String(reason)));
     void loadDesktopSettings().then(setSettings).catch(() => undefined);
+    let unlistenOpened: (() => void) | undefined;
+    void nativeRuntime.onCaptureOverlayOpened(() => {
+      if (lookupRef.current.timer) {
+        window.clearTimeout(lookupRef.current.timer);
+        lookupRef.current.timer = null;
+      }
+      lookupRef.current.running = false;
+      pointerStarted.current = false;
+      setDrag(null);
+      setHoverRegion(null);
+      setLockedRegion(null);
+      setError("");
+    }).then((dispose) => {
+      unlistenOpened = dispose;
+    });
+    return () => {
+      document.documentElement.classList.remove("overlay-window");
+      document.body.classList.remove("overlay-window");
+      unlistenOpened?.();
+      if (lookupRef.current.timer) window.clearTimeout(lookupRef.current.timer);
+    };
+  }, []);
+
+  useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") void nativeRuntime.hideCaptureOverlay();
       if (event.key === "Enter" && !capturing) {
         event.preventDefault();
-        void capture(lockedRegion || hoverRegion || focusTarget, activeDisplay);
+        const region = lockedRegion || hoverRegion;
+        void capture(region, region ? displayForRegion(displays, region) || undefined : primaryDisplay);
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => {
-      document.documentElement.classList.remove("overlay-window");
-      document.body.classList.remove("overlay-window");
       window.removeEventListener("keydown", onKeyDown);
-      if (lookupRef.current.timer) window.clearTimeout(lookupRef.current.timer);
     };
-  }, [activeDisplay, capture, capturing, focusTarget, hoverRegion, lockedRegion]);
+  }, [capture, capturing, displays, hoverRegion, lockedRegion, primaryDisplay]);
 
   const onPointerDown = (event: PointerEvent<HTMLElement>) => {
     if (capturing || (event.target as HTMLElement).closest("button")) return;
@@ -191,11 +203,23 @@ export default function CaptureOverlayPage() {
     const clicked = width < dragThreshold && height < dragThreshold;
     setDrag(null);
     if (clicked) {
-      setLockedRegion(hoverRegion);
+      void nativeRuntime
+        .windowRegionAtPoint(current.x, current.y)
+        .then((region) => {
+          setHoverRegion(region);
+          setLockedRegion(region);
+        })
+        .catch(() => {
+          setHoverRegion(null);
+          setLockedRegion(null);
+        });
       return;
     }
     const topLeft = { x: Math.min(drag.start.x, current.x), y: Math.min(drag.start.y, current.y) };
-    const display = activeDisplay;
+    const display = displayForPoint(displays, {
+      x: topLeft.x + Math.round(width / 2),
+      y: topLeft.y + Math.round(height / 2),
+    }) || primaryDisplay;
     if (!display) return;
     void capture(
       {
@@ -210,23 +234,25 @@ export default function CaptureOverlayPage() {
   };
 
   const selection = drag ? rectFromPoints(drag.start, drag.current, bounds) : null;
-  const activeRegionRect = selectedRegion && activeDisplay ? rectFromRegion(clampRegionToDisplay(selectedRegion, activeDisplay), bounds) : null;
-  const activeRegionLabel = lockedRegion ? text.selected : hoverRegion ? text.hovered : text.focused;
+  const activeRegionRect = selectedRegion ? rectFromRegion(clampRegionToVirtualBounds(selectedRegion, bounds), bounds) : null;
+  const activeRegionLabel = lockedRegion ? text.selected : text.hovered;
 
   return (
     <main
-      className="relative h-screen w-screen cursor-crosshair overflow-hidden bg-black/32 text-white"
+      className="relative h-screen w-screen cursor-crosshair overflow-hidden bg-black/36 text-white"
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
     >
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_0,rgba(0,0,0,0.18)_70%)]" />
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_0,rgba(0,0,0,0.2)_72%)]" />
 
-      {activeDisplay && (
-        <div className="pointer-events-none absolute inset-0 rounded-lg border-2 border-dashed border-white/70 bg-white/5">
-          <div className="m-3 inline-flex items-center gap-2 rounded-md border border-white/20 bg-black/45 px-3 py-1.5 text-xs font-medium backdrop-blur">
+      {primaryDisplay && (
+        <div className="pointer-events-none absolute left-4 top-4 rounded-md border border-white/15 bg-black/45 px-3 py-1.5 text-xs font-medium backdrop-blur">
+          <div className="inline-flex items-center gap-2">
             <Image className="h-3.5 w-3.5" />
-            {activeDisplay.name} - {activeDisplay.width} x {activeDisplay.height}
+            {displays.length > 1
+              ? `${displays.length} screens - ${bounds.width} x ${bounds.height}`
+              : `${primaryDisplay.name} - ${primaryDisplay.width} x ${primaryDisplay.height}`}
           </div>
         </div>
       )}
@@ -307,13 +333,13 @@ function rectFromRegion(region: CaptureRegion, bounds: { x: number; y: number })
   };
 }
 
-function clampRegionToDisplay(region: CaptureRegion, display: DisplayInfo): CaptureRegion {
-  const x = Math.max(display.x, region.x);
-  const y = Math.max(display.y, region.y);
-  const right = Math.min(display.x + display.width, region.x + region.width);
-  const bottom = Math.min(display.y + display.height, region.y + region.height);
+function clampRegionToVirtualBounds(region: CaptureRegion, bounds: { x: number; y: number; width: number; height: number }): CaptureRegion {
+  const x = Math.max(bounds.x, region.x);
+  const y = Math.max(bounds.y, region.y);
+  const right = Math.min(bounds.x + bounds.width, region.x + region.width);
+  const bottom = Math.min(bounds.y + bounds.height, region.y + region.height);
   return {
-    displayId: display.id,
+    displayId: region.displayId,
     x,
     y,
     width: Math.max(1, right - x),
@@ -321,8 +347,33 @@ function clampRegionToDisplay(region: CaptureRegion, display: DisplayInfo): Capt
   };
 }
 
+function displayForPoint(displays: DisplayInfo[], point: Point) {
+  return displays.find(
+    (display) =>
+      point.x >= display.x &&
+      point.y >= display.y &&
+      point.x < display.x + display.width &&
+      point.y < display.y + display.height,
+  );
+}
+
+function displayForRegion(displays: DisplayInfo[], region: CaptureRegion) {
+  return (
+    displays.find((display) => display.id === region.displayId) ||
+    displayForPoint(displays, {
+      x: region.x + Math.round(region.width / 2),
+      y: region.y + Math.round(region.height / 2),
+    })
+  );
+}
+
 function isWindowRegion(region: CaptureRegion) {
   return region.displayId === "clicked-window" || region.displayId === "focused-window";
+}
+
+function sameRegion(first: CaptureRegion | null, second: CaptureRegion | null) {
+  if (!first || !second) return first === second;
+  return first.displayId === second.displayId && first.x === second.x && first.y === second.y && first.width === second.width && first.height === second.height;
 }
 
 async function resolveFreshWindowRegion(region: CaptureRegion | null) {

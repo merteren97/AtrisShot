@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowLeft,
+  Check,
   Copy,
   Edit3,
   ExternalLink,
@@ -22,7 +23,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { SettingsPanel } from "@/components/settings-panel";
 import { DEFAULT_SHOT_SETTINGS } from "@atris-shot/shot-core";
 import { loadDesktopSettings } from "@/lib/desktop-settings";
-import { clearShotHistory, deleteShotHistoryEntry, loadShotHistory } from "@/lib/shot-history";
+import { deleteShotHistoryEntry, loadShotHistory } from "@/lib/shot-history";
 import { isNativeRuntime, nativeRuntime } from "@/lib/native-runtime";
 import { useUiPreferences, type Locale } from "@/lib/ui-preferences";
 import { cn } from "@/lib/utils";
@@ -52,6 +53,9 @@ const workspaceCopy = {
     copyPath: "Copy path",
     reveal: "Reveal",
     delete: "Delete",
+    deleteSelected: "Delete selected",
+    selectedCount: "{count} selected",
+    selectForDelete: "Select for deletion",
     dimensions: "Dimensions",
     source: "Source",
     mode: "Mode",
@@ -64,6 +68,7 @@ const workspaceCopy = {
     dateUnavailable: "Date unavailable",
     display: "Screen capture",
     region: "Region capture",
+    screen: "Screen",
     selectedWindow: "Selected window",
     currentScreen: "Current screen",
     noFile: "No file",
@@ -96,6 +101,9 @@ const workspaceCopy = {
     copyPath: "Path kopyala",
     reveal: "Klasörde göster",
     delete: "Sil",
+    deleteSelected: "Seçilenleri sil",
+    selectedCount: "{count} seçili",
+    selectForDelete: "Silmek için seç",
     dimensions: "Boyut",
     source: "Kaynak",
     mode: "Tür",
@@ -108,6 +116,7 @@ const workspaceCopy = {
     dateUnavailable: "Tarih yok",
     display: "Ekran yakalama",
     region: "Bölge yakalama",
+    screen: "Ekran",
     selectedWindow: "Seçili pencere",
     currentScreen: "Geçerli ekran",
     noFile: "Dosya yok",
@@ -120,7 +129,49 @@ const workspaceCopy = {
   },
 } as const;
 
-type WorkspaceText = (typeof workspaceCopy)[keyof typeof workspaceCopy];
+const localizedWorkspaceCopy = {
+  ...workspaceCopy,
+  tr: {
+    ...workspaceCopy.tr,
+    settingsSubtitle: "Yakalama, depolama, çıktı ve görünüm",
+    recent: "Son ekran görüntüleri",
+    ready: "Hazır",
+    editedSaved: "Düzenlenen ekran görüntüsü kaydedildi",
+    saved: "Ekran görüntüsü kaydedildi",
+    packagedOnly: "Bu işlem için paketlenmiş masaüstü uygulamasını aç.",
+    editorOpened: "Editör açıldı",
+    removed: "Ekran görüntüsü kaldırıldı",
+    cleared: "Geçmiş temizlendi",
+    localDataRemoved: "Yerel veri kaldırıldı",
+    history: "Geçmiş",
+    localScreenshots: "yerel ekran görüntüsü",
+    noScreenshots: "Henüz ekran görüntüsü yok",
+    noScreenshotsDescription: "İlk ekran görüntünü almak için AtrisShot kısayolunu kullan.",
+    latest: "Seçili ekran görüntüsü",
+    edit: "Düzenle",
+    deleteSelected: "Seçilenleri sil",
+    selectedCount: "{count} seçili",
+    selectForDelete: "Silmek için seç",
+    reveal: "Klasörde göster",
+    mode: "Tür",
+    annotations: "İşaretleme",
+    dragHint: "Kaydedilen path'i metin alanlarına bırakmak için sonuç overlay'ini sürükle veya işaretleme için editörü aç.",
+    readyTitle: "AtrisShot hazır",
+    readyDescription: "Kısayol ile yakala; sonra bu ekrandan düzenle, kopyala, klasörde göster ve geçmişi yönet.",
+    missingDescription: "Bu geçmiş kaydı duruyor, fakat ekran görüntüsü dosyası artık bu cihazda yok.",
+    region: "Bölge yakalama",
+    screen: "Ekran",
+    selectedWindow: "Seçili pencere",
+    currentScreen: "Geçerli ekran",
+    offlineGrace: "Çevrimdışı erişim",
+    openHub: "AtrisHub'ı aç",
+    signOut: "Çıkış yap",
+    accountMenu: "Hesap menüsü",
+    back: "Geçmişe dön",
+  },
+} as const;
+
+type WorkspaceText = Record<keyof typeof workspaceCopy.en, string>;
 
 function useShotDataUrl(path?: string | null) {
   const [dataUrl, setDataUrl] = useState("");
@@ -164,11 +215,12 @@ function ShotImage({
 
 export function ShotWorkspace({ session, onLogout }: { session: ShotSession; onLogout: () => void }) {
   const { locale } = useUiPreferences();
-  const text = workspaceCopy[locale];
+  const text = localizedWorkspaceCopy[locale];
   const accountMenuRef = useRef<HTMLDivElement | null>(null);
   const [settings, setSettings] = useState<ShotSettings>(DEFAULT_SHOT_SETTINGS);
   const [historyEntries, setHistoryEntries] = useState<ShotHistoryEntry[]>([]);
   const [selectedEntry, setSelectedEntry] = useState<ShotHistoryEntry | null>(null);
+  const [selectedEntryIds, setSelectedEntryIds] = useState<Set<string>>(() => new Set());
   const [missingEntryIds, setMissingEntryIds] = useState<Set<string>>(() => new Set());
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -209,6 +261,12 @@ export function ShotWorkspace({ session, onLogout }: { session: ShotSession; onL
       setHistoryEntries((current) => {
         const next = [entry, ...current.filter((item) => item.id !== entry.id)];
         void refreshMissingEntries(next);
+        return next;
+      });
+      setSelectedEntryIds((current) => {
+        if (!current.has(entry.id)) return current;
+        const next = new Set(current);
+        next.delete(entry.id);
         return next;
       });
       setSelectedEntry(entry);
@@ -259,16 +317,27 @@ export function ShotWorkspace({ session, onLogout }: { session: ShotSession; onL
     const next = await deleteShotHistoryEntry(entry.id);
     setHistoryEntries(next);
     void refreshMissingEntries(next);
+    setSelectedEntryIds((current) => {
+      const nextIds = new Set(current);
+      nextIds.delete(entry.id);
+      return nextIds;
+    });
     if (selectedEntry?.id === entry.id) setSelectedEntry(next[0] ?? null);
     setStatus(text.removed);
   };
 
-  const clearHistoryEntries = async () => {
-    const next = await clearShotHistory();
+  const deleteSelectedHistoryEntries = async (ids: string[]) => {
+    const uniqueIds = [...new Set(ids)];
+    if (!uniqueIds.length) return;
+    let next = historyEntries;
+    for (const id of uniqueIds) {
+      next = await deleteShotHistoryEntry(id);
+    }
     setHistoryEntries(next);
-    setMissingEntryIds(new Set());
-    setSelectedEntry(null);
-    setStatus(text.cleared);
+    void refreshMissingEntries(next);
+    setSelectedEntryIds(new Set());
+    setSelectedEntry((current) => (current && next.some((entry) => entry.id === current.id) ? current : next[0] ?? null));
+    setStatus(uniqueIds.length === 1 ? text.removed : text.deleteSelected);
   };
 
   const handleLocalDataRemoved = useCallback(() => {
@@ -321,16 +390,25 @@ export function ShotWorkspace({ session, onLogout }: { session: ShotSession; onL
         <HistoryWorkspace
           entries={historyEntries}
           selected={selectedEntry}
+          selectedEntryIds={selectedEntryIds}
           missingEntryIds={missingEntryIds}
           error={error}
           locale={locale}
           text={text}
           onSelect={setSelectedEntry}
+          onToggleSelection={(entry) =>
+            setSelectedEntryIds((current) => {
+              const next = new Set(current);
+              if (next.has(entry.id)) next.delete(entry.id);
+              else next.add(entry.id);
+              return next;
+            })
+          }
           onEdit={(entry) => void openEditor(entry)}
           onCopyPath={(entry) => void copyPath(entry.editedPath || entry.originalPath)}
           onReveal={(entry) => void reveal(entry.editedPath || entry.originalPath)}
           onDelete={(entry) => void deleteHistoryEntry(entry)}
-          onClear={() => void clearHistoryEntries()}
+          onDeleteSelected={(ids) => void deleteSelectedHistoryEntries(ids)}
         />
       )}
     </main>
@@ -340,74 +418,102 @@ export function ShotWorkspace({ session, onLogout }: { session: ShotSession; onL
 function HistoryWorkspace({
   entries,
   selected,
+  selectedEntryIds,
   missingEntryIds,
   error,
   locale,
   text,
   onSelect,
+  onToggleSelection,
   onEdit,
   onCopyPath,
   onReveal,
   onDelete,
-  onClear,
+  onDeleteSelected,
 }: {
   entries: ShotHistoryEntry[];
   selected: ShotHistoryEntry | null;
+  selectedEntryIds: Set<string>;
   missingEntryIds: Set<string>;
   error: string;
   locale: Locale;
   text: WorkspaceText;
   onSelect: (entry: ShotHistoryEntry) => void;
+  onToggleSelection: (entry: ShotHistoryEntry) => void;
   onEdit: (entry: ShotHistoryEntry) => void;
   onCopyPath: (entry: ShotHistoryEntry) => void;
   onReveal: (entry: ShotHistoryEntry) => void;
   onDelete: (entry: ShotHistoryEntry) => void;
-  onClear: () => void;
+  onDeleteSelected: (ids: string[]) => void;
 }) {
   const selectedMissing = Boolean(selected && missingEntryIds.has(selected.id));
+  const selectedForDeleteCount = selectedEntryIds.size;
   return (
-    <section className="grid min-h-0 flex-1 grid-cols-[244px_1fr] overflow-hidden max-md:grid-cols-1">
-      <aside className="min-h-0 border-r bg-card/60">
+    <section className="grid min-h-0 flex-1 grid-cols-[300px_1fr] overflow-hidden max-md:grid-cols-1">
+      <aside className="flex min-h-0 flex-col border-r bg-card/60">
         <div className="flex h-12 items-center justify-between border-b px-3">
           <div>
             <h2 className="text-sm font-semibold">{text.history}</h2>
-            <p className="text-xs text-muted-foreground">{entries.length} {text.localScreenshots}</p>
+            <p className="text-xs text-muted-foreground">
+              {selectedForDeleteCount ? text.selectedCount.replace("{count}", String(selectedForDeleteCount)) : `${entries.length} ${text.localScreenshots}`}
+            </p>
           </div>
-          <Button type="button" size="icon" variant="ghost" aria-label="Clear history" disabled={!entries.length} onClick={onClear}>
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            aria-label={text.deleteSelected}
+            title={text.deleteSelected}
+            disabled={!selectedForDeleteCount}
+            onClick={() => onDeleteSelected([...selectedEntryIds])}
+          >
             <Trash2 className="h-4 w-4" />
           </Button>
         </div>
-        <div className="min-h-0 h-[calc(100vh-6.5rem)] overflow-y-auto p-2.5 max-md:h-44">
+        <div className="min-h-0 flex-1 overflow-y-auto p-3 max-md:h-56 max-md:flex-none">
           {entries.length ? (
-            <div className="space-y-2">
+            <div className="space-y-3">
               {entries.map((entry) => {
                 const isMissing = missingEntryIds.has(entry.id);
+                const checked = selectedEntryIds.has(entry.id);
                 return (
-                  <button
+                  <div
                     key={entry.id}
-                    type="button"
-                    onClick={() => onSelect(entry)}
                     className={cn(
-                      "grid w-full grid-cols-[72px_1fr] gap-3 rounded-lg border bg-background/70 p-2 text-left transition hover:border-primary/40 hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                      "relative rounded-xl border bg-background/70 p-2.5 text-left shadow-sm transition hover:border-primary/40 hover:bg-accent/45",
                       selected?.id === entry.id && "border-primary bg-accent",
+                      checked && "ring-1 ring-primary/60",
                     )}
                   >
-                    <span className="grid aspect-video place-items-center overflow-hidden rounded-md border bg-muted/50">
-                      {entry.thumbnailPath && !isMissing ? (
-                        <ShotImage path={entry.thumbnailPath} className="h-full w-full object-cover" loading="lazy" />
-                      ) : (
-                        <Image className="h-4 w-4 text-muted-foreground" />
+                    <button
+                      type="button"
+                      aria-label={`${text.selectForDelete}: ${cleanDisplayName(entry.displayName, text)}`}
+                      aria-pressed={checked}
+                      onClick={() => onToggleSelection(entry)}
+                      className={cn(
+                        "absolute left-4 top-4 z-10 grid h-7 w-7 place-items-center rounded-full border bg-background/80 text-muted-foreground shadow-sm backdrop-blur transition hover:border-primary hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                        checked && "border-primary bg-primary text-primary-foreground",
                       )}
-                    </span>
-                      <span className="min-w-0">
-                        <span className="block truncate text-xs font-medium">{cleanDisplayName(entry.displayName)}</span>
-                      <span className="mt-1 block truncate text-[11px] text-muted-foreground">{formatShotDate(entry.createdAt, entry.id, locale)}</span>
-                      <span className="mt-2 flex items-center gap-1">
-                        <Badge className="rounded-full px-2 text-[10px]">{modeLabel(entry.mode, text)}</Badge>
-                        {isMissing && <Badge className="border-destructive/30 bg-destructive/10 text-destructive">Missing</Badge>}
+                    >
+                      {checked ? <Check className="h-3.5 w-3.5" /> : null}
+                    </button>
+                    <button type="button" onClick={() => onSelect(entry)} className="block w-full min-w-0 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                      <span className="grid aspect-video w-full place-items-center overflow-hidden rounded-lg border bg-muted/50">
+                        {entry.thumbnailPath && !isMissing ? (
+                          <ShotImage path={entry.thumbnailPath} className="h-full w-full object-cover" loading="lazy" />
+                        ) : (
+                          <Image className="h-5 w-5 text-muted-foreground" />
+                        )}
                       </span>
-                    </span>
-                  </button>
+                      <span className="mt-2.5 flex min-w-0 items-start justify-between gap-2">
+                        <span className="min-w-0">
+                          <span className="block truncate text-sm font-semibold">{cleanDisplayName(entry.displayName, text)}</span>
+                          <span className="mt-0.5 block truncate text-xs text-muted-foreground">{formatShotDate(entry.createdAt, entry.id, locale)}</span>
+                        </span>
+                        {isMissing && <Badge className="shrink-0 border-destructive/30 bg-destructive/10 text-destructive">Missing</Badge>}
+                      </span>
+                    </button>
+                  </div>
                 );
               })}
             </div>
@@ -424,7 +530,7 @@ function HistoryWorkspace({
       <section className="min-h-0 overflow-y-auto p-4">
         {error && <p className="mb-4 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}
         {selected ? (
-          <div className="mx-auto flex h-full max-w-6xl flex-col gap-4">
+          <div className="mx-auto flex max-w-6xl flex-col gap-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <h2 className="text-lg font-semibold tracking-tight">{text.latest}</h2>
@@ -446,9 +552,9 @@ function HistoryWorkspace({
               </div>
             </div>
 
-            <Card className="min-h-0 flex-1">
-              <CardContent className="grid min-h-[500px] gap-4 p-4 xl:grid-cols-[minmax(0,1fr)_280px]">
-                <div className="relative flex min-h-[360px] items-center justify-center overflow-hidden rounded-lg border bg-muted/30 p-3">
+            <Card className="min-h-0">
+              <CardContent className="grid gap-4 p-4 xl:grid-cols-[minmax(0,1fr)_280px]">
+                <div className="relative flex min-h-[280px] max-h-[calc(100vh-15rem)] items-center justify-center overflow-hidden rounded-lg border bg-muted/30 p-3">
                   {selectedMissing ? (
                     <div className="text-center">
                       <Image className="mx-auto h-10 w-10 text-muted-foreground" />
@@ -590,11 +696,15 @@ function formatShotDate(value: string, fallbackId: string | undefined, locale: L
       });
     }
   }
-  return workspaceCopy[locale].dateUnavailable;
+  return localizedWorkspaceCopy[locale].dateUnavailable;
 }
 
 function cleanDisplayName(value: string, text: WorkspaceText = workspaceCopy.en) {
-  const normalized = stripWindowsVerbatimPath(value).replace(/^DISPLAY(\d+)$/i, "Display $1");
+  const screenPrefix = text.screen || workspaceCopy.en.screen;
+  const normalized = stripWindowsVerbatimPath(value)
+    .replace(/^\\\\\.\\DISPLAY(\d+)$/i, `${screenPrefix} $1`)
+    .replace(/^DISPLAY(\d+)$/i, `${screenPrefix} $1`)
+    .replace(/^Display (\d+)$/i, `${screenPrefix} $1`);
   if (normalized === "clicked-window" || normalized === "focused-window") return text.selectedWindow;
   return normalized || text.currentScreen;
 }
@@ -614,7 +724,9 @@ function pathParts(path: string, text: WorkspaceText = workspaceCopy.en) {
 }
 
 function stripWindowsVerbatimPath(value: string) {
-  return value.replace(/^\\\\\?\\UNC\\/i, "\\\\").replace(/^\\\\\?\\/i, "");
+  if (value.startsWith("\\\\?\\UNC\\")) return `\\\\${value.slice("\\\\?\\UNC\\".length)}`;
+  if (value.startsWith("\\\\?\\")) return value.slice("\\\\?\\".length);
+  return value;
 }
 
 async function copyPath(path: string) {

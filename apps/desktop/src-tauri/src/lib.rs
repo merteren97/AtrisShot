@@ -30,6 +30,7 @@ struct ShotStore {
 }
 
 static LAST_FOCUS_TARGET: OnceLock<Mutex<Option<CaptureRegion>>> = OnceLock::new();
+static CAPTURE_HIDDEN_WINDOWS: OnceLock<Mutex<Vec<String>>> = OnceLock::new();
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -216,6 +217,31 @@ fn remove_history_entry(entries: &mut Vec<ShotHistoryEntry>, id: &str) {
     entries.retain(|entry| entry.id != id);
 }
 
+fn history_entry_file_paths(entry: &ShotHistoryEntry) -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    for value in [
+        Some(entry.original_path.as_str()),
+        entry.edited_path.as_deref(),
+        entry.thumbnail_path.as_deref(),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        if let Ok(path) = path_from_user_input(value) {
+            if !paths.iter().any(|existing| existing == &path) {
+                paths.push(path);
+            }
+        }
+    }
+    paths
+}
+
+fn remove_history_entry_files(entry: &ShotHistoryEntry) {
+    for path in history_entry_file_paths(entry) {
+        let _ = remove_file_if_exists(&path);
+    }
+}
+
 fn clear_history_entries(entries: &mut Vec<ShotHistoryEntry>) {
     entries.clear();
 }
@@ -285,6 +311,28 @@ fn capture_center(region: &CaptureRegion) -> (i32, i32) {
     )
 }
 
+fn virtual_display_bounds(displays: &[DisplayInfo]) -> Option<(i32, i32, u32, u32)> {
+    if displays.is_empty() {
+        return None;
+    }
+    let left = displays.iter().map(|display| display.x).min()?;
+    let top = displays.iter().map(|display| display.y).min()?;
+    let right = displays
+        .iter()
+        .map(|display| display.x + display.width as i32)
+        .max()?;
+    let bottom = displays
+        .iter()
+        .map(|display| display.y + display.height as i32)
+        .max()?;
+    Some((
+        left,
+        top,
+        right.saturating_sub(left).max(1) as u32,
+        bottom.saturating_sub(top).max(1) as u32,
+    ))
+}
+
 fn native_screen_for_region(region: &CaptureRegion) -> Result<Screen, String> {
     let (center_x, center_y) = capture_center(region);
     match Screen::from_point(center_x, center_y) {
@@ -333,39 +381,37 @@ fn get_focus_target() -> Option<CaptureRegion> {
         .and_then(|target| target.clone())
 }
 
-#[cfg(target_os = "windows")]
-fn foreground_window_region() -> Option<CaptureRegion> {
-    use windows_sys::Win32::{
-        Foundation::RECT,
-        UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowRect, IsWindowVisible},
-    };
+fn capture_hidden_windows_store() -> &'static Mutex<Vec<String>> {
+    CAPTURE_HIDDEN_WINDOWS.get_or_init(|| Mutex::new(Vec::new()))
+}
 
-    unsafe {
-        let hwnd = GetForegroundWindow();
-        if hwnd.is_null() || IsWindowVisible(hwnd) == 0 {
-            return None;
-        }
-        let mut rect = RECT {
-            left: 0,
-            top: 0,
-            right: 0,
-            bottom: 0,
+fn hide_internal_windows_for_capture(app: &AppHandle) {
+    let Ok(mut hidden_labels) = capture_hidden_windows_store().lock() else {
+        return;
+    };
+    if !hidden_labels.is_empty() {
+        return;
+    }
+    for label in ["main", "editor", "overlay"] {
+        let Some(window) = app.get_webview_window(label) else {
+            continue;
         };
-        if GetWindowRect(hwnd, &mut rect) == 0 {
-            return None;
+        if window.is_visible().unwrap_or(false) {
+            let _ = window.hide();
+            hidden_labels.push(label.to_string());
         }
-        let width = rect.right.saturating_sub(rect.left);
-        let height = rect.bottom.saturating_sub(rect.top);
-        if width < 32 || height < 32 {
-            return None;
+    }
+}
+
+fn restore_internal_windows_after_capture(app: &AppHandle) {
+    let labels = capture_hidden_windows_store()
+        .lock()
+        .map(|mut hidden_labels| std::mem::take(&mut *hidden_labels))
+        .unwrap_or_default();
+    for label in labels {
+        if let Some(window) = app.get_webview_window(&label) {
+            let _ = window.show();
         }
-        Some(CaptureRegion {
-            display_id: "focused-window".to_string(),
-            x: rect.left,
-            y: rect.top,
-            width: width as u32,
-            height: height as u32,
-        })
     }
 }
 
@@ -375,7 +421,7 @@ fn window_region_at_point_native(x: i32, y: i32) -> Option<CaptureRegion> {
         Foundation::{HWND, POINT, RECT},
         UI::WindowsAndMessaging::{
             GetAncestor, GetWindow, GetWindowRect, GetWindowTextLengthW, GetWindowTextW,
-            IsWindowVisible, WindowFromPoint, GA_ROOT, GW_HWNDNEXT,
+            GetWindowThreadProcessId, IsWindowVisible, WindowFromPoint, GA_ROOT, GW_HWNDNEXT,
         },
     };
 
@@ -405,6 +451,16 @@ fn window_region_at_point_native(x: i32, y: i32) -> Option<CaptureRegion> {
         matches!(title, "AtrisShot Capture" | "AtrisShot Result")
     }
 
+    fn point_is_inside_rect(x: i32, y: i32, rect: &RECT) -> bool {
+        x >= rect.left && x < rect.right && y >= rect.top && y < rect.bottom
+    }
+
+    unsafe fn is_current_process_window(hwnd: HWND) -> bool {
+        let mut process_id = 0_u32;
+        GetWindowThreadProcessId(hwnd, &mut process_id);
+        process_id == std::process::id()
+    }
+
     unsafe {
         let hwnd = WindowFromPoint(POINT { x, y });
         if hwnd.is_null() {
@@ -423,7 +479,11 @@ fn window_region_at_point_native(x: i32, y: i32) -> Option<CaptureRegion> {
                     right: 0,
                     bottom: 0,
                 };
-                if GetWindowRect(target, &mut rect) != 0 && !is_atrisshot_overlay_title(&title) {
+                if GetWindowRect(target, &mut rect) != 0
+                    && point_is_inside_rect(x, y, &rect)
+                    && !is_atrisshot_overlay_title(&title)
+                    && !is_current_process_window(target)
+                {
                     let width = rect.right.saturating_sub(rect.left);
                     let height = rect.bottom.saturating_sub(rect.top);
                     if width >= 32 && height >= 32 {
@@ -441,11 +501,6 @@ fn window_region_at_point_native(x: i32, y: i32) -> Option<CaptureRegion> {
         }
         None
     }
-}
-
-#[cfg(not(target_os = "windows"))]
-fn foreground_window_region() -> Option<CaptureRegion> {
-    None
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -986,12 +1041,6 @@ fn capture_shot(
         width: display.width,
         height: display.height,
     });
-    let _include_cursor = request.include_cursor.unwrap_or(false);
-    hide_capture_overlay(app.clone());
-    thread::sleep(Duration::from_millis(
-        140 + request.capture_delay_ms.unwrap_or(0).min(10_000),
-    ));
-
     let id = now_id();
     let root = capture_root(&app, request.save_folder.as_deref())?;
     fs::create_dir_all(&root).map_err(|error| error.to_string())?;
@@ -1008,7 +1057,14 @@ fn capture_shot(
     }
     let screen = native_screen_for_region(&region)?;
     let mut captured_region = region.clone();
-    let image = if request.mode == "region" {
+
+    let _include_cursor = request.include_cursor.unwrap_or(false);
+    hide_capture_overlay_window(&app);
+    thread::sleep(Duration::from_millis(
+        140 + request.capture_delay_ms.unwrap_or(0).min(10_000),
+    ));
+
+    let image_result = if request.mode == "region" {
         captured_region = clamp_region_to_screen(&region, &screen);
         let local_x = captured_region
             .x
@@ -1025,10 +1081,12 @@ fn capture_shot(
                 captured_region.width,
                 captured_region.height,
             )
-            .map_err(|error| error.to_string())?
+            .map_err(|error| error.to_string())
     } else {
-        screen.capture().map_err(|error| error.to_string())?
+        screen.capture().map_err(|error| error.to_string())
     };
+    restore_internal_windows_after_capture(&app);
+    let image = image_result?;
     image.save(&path).map_err(|error| error.to_string())?;
     let clipboard_mode = request.clipboard_mode.as_deref().unwrap_or("image");
     let mut copied_image = false;
@@ -1037,16 +1095,16 @@ fn capture_shot(
         copied_image =
             copy_image_to_clipboard(image.width(), image.height(), image.as_raw().clone()).is_ok();
     } else if clipboard_mode == "path" {
-        copied_path = copy_text_to_clipboard(&path.to_string_lossy()).is_ok();
+        copied_path = copy_text_to_clipboard(&display_path(&path)).is_ok();
     }
     let thumbnail_path = write_thumbnail(&path, &id).ok();
     let entry = ShotHistoryEntry {
         id,
         created_at: now_isoish(),
         mode: request.mode,
-        original_path: path.to_string_lossy().to_string(),
+        original_path: display_path(&path),
         edited_path: None,
-        thumbnail_path: thumbnail_path.map(|path| path.to_string_lossy().to_string()),
+        thumbnail_path: thumbnail_path.map(|path| display_path(&path)),
         width: image.width(),
         height: image.height(),
         display_name: display.name,
@@ -1083,6 +1141,7 @@ fn delete_shot(
     store: State<'_, ShotStore>,
     id: String,
 ) -> Result<Vec<ShotHistoryEntry>, String> {
+    let mut entry_to_remove = None;
     let mut entries = store
         .entries
         .lock()
@@ -1090,8 +1149,14 @@ fn delete_shot(
     if entries.is_empty() {
         *entries = load_history_from_disk(&app);
     }
+    if let Some(entry) = entries.iter().find(|entry| entry.id == id) {
+        entry_to_remove = Some(entry.clone());
+    }
     remove_history_entry(&mut entries, &id);
     persist_history(&app, &entries)?;
+    if let Some(entry) = entry_to_remove {
+        remove_history_entry_files(&entry);
+    }
     Ok(entries.clone())
 }
 
@@ -1153,8 +1218,8 @@ fn apply_annotations(
     render_annotations(&original_path, &edited_path, &annotations)?;
     let thumbnail_path = write_thumbnail(&edited_path, &entry.id).ok();
     entry.annotations_count = annotations_count;
-    entry.edited_path = Some(edited_path.to_string_lossy().to_string());
-    entry.thumbnail_path = thumbnail_path.map(|path| path.to_string_lossy().to_string());
+    entry.edited_path = Some(display_path(&edited_path));
+    entry.thumbnail_path = thumbnail_path.map(|path| display_path(&path));
     let next = entry.clone();
     persist_history(&app, &entries)?;
     let _ = app.emit("shot-captured", next.clone());
@@ -1170,7 +1235,7 @@ fn reveal_shot(path: String) -> Result<(), String> {
 #[tauri::command]
 fn copy_shot_path(path: String) -> Result<(), String> {
     let path = path_from_user_input(&path)?;
-    copy_text_to_clipboard(&path.to_string_lossy())
+    copy_text_to_clipboard(&display_path(&path))
 }
 
 #[tauri::command]
@@ -1288,6 +1353,7 @@ fn overlay_position(
     window_size: &PhysicalSize<u32>,
 ) -> PhysicalPosition<i32> {
     let margin = 24;
+    let bottom_margin = 72;
     let right = monitor_position.x
         + monitor_size
             .width
@@ -1297,7 +1363,7 @@ fn overlay_position(
     let bottom = monitor_position.y
         + monitor_size
             .height
-            .saturating_sub(window_size.height + margin as u32) as i32;
+            .saturating_sub(window_size.height + bottom_margin as u32) as i32;
     match corner {
         "bottom-right" => PhysicalPosition {
             x: right,
@@ -1331,6 +1397,7 @@ fn show_overlay(app: AppHandle, overlay_corner: Option<String>) {
             }
         }
         let _ = window.set_always_on_top(true);
+        let _ = app.emit("result-overlay-opened", ());
         let _ = window.show();
     }
 }
@@ -1345,38 +1412,27 @@ fn hide_overlay(app: AppHandle) {
 #[tauri::command]
 fn show_capture_overlay(app: AppHandle) {
     if let Some(window) = app.get_webview_window("capture") {
-        let focus_target = foreground_window_region();
-        set_focus_target(focus_target.clone());
-        let target_monitor = focus_target
-            .as_ref()
-            .and_then(|region| {
-                let (center_x, center_y) = capture_center(region);
-                displays(&app).into_iter().find(|display| {
-                    center_x >= display.x
-                        && center_y >= display.y
-                        && center_x < display.x + display.width as i32
-                        && center_y < display.y + display.height as i32
-                })
-            })
-            .or_else(|| displays(&app).into_iter().next());
-        if let Some(display) = target_monitor {
-            let _ = window.set_position(Position::Physical(PhysicalPosition {
-                x: display.x,
-                y: display.y,
-            }));
-            let _ = window.set_size(Size::Physical(PhysicalSize {
-                width: display.width.max(1),
-                height: display.height.max(1),
-            }));
+        set_focus_target(None);
+        hide_internal_windows_for_capture(&app);
+        let display_list = displays(&app);
+        if let Some((x, y, width, height)) = virtual_display_bounds(&display_list) {
+            let _ = window.set_position(Position::Physical(PhysicalPosition { x, y }));
+            let _ = window.set_size(Size::Physical(PhysicalSize { width, height }));
         }
         let _ = window.set_always_on_top(true);
         let _ = window.show();
         let _ = window.set_focus();
+        let _ = app.emit("capture-overlay-opened", ());
     }
 }
 
 #[tauri::command]
 fn hide_capture_overlay(app: AppHandle) {
+    hide_capture_overlay_window(&app);
+    restore_internal_windows_after_capture(&app);
+}
+
+fn hide_capture_overlay_window(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("capture") {
         let _ = window.hide();
     }
@@ -1475,10 +1531,11 @@ fn build_tray_menu(app: &AppHandle, locale: &str) -> tauri::Result<Menu<tauri::W
 #[tauri::command]
 fn set_tray_locale(app: AppHandle, locale: String) -> Result<(), String> {
     let menu = build_tray_menu(&app, &locale).map_err(|error| error.to_string())?;
-    let tray = app
-        .tray_by_id("main-tray")
-        .ok_or("AtrisShot tray icon is unavailable.")?;
-    tray.set_menu(Some(menu)).map_err(|error| error.to_string())
+    if let Some(tray) = app.tray_by_id("main-tray") {
+        tray.set_menu(Some(menu))
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -1512,41 +1569,47 @@ pub fn run() {
                 let _ = register_capture_shortcut(app.handle(), DEFAULT_SHORTCUT);
             }
 
-            let menu = build_tray_menu(app.handle(), "en")?;
-            let mut tray = TrayIconBuilder::with_id("main-tray")
-                .menu(&menu)
-                .show_menu_on_left_click(false)
-                .on_menu_event(|app, event| match event.id().as_ref() {
-                    "open" => {
-                        if let Some(window) = app.get_webview_window("main") {
-                            let _ = window.show();
-                            let _ = window.set_focus();
-                        }
-                    }
-                    "capture" => {
-                        show_capture_overlay(app.clone());
-                    }
-                    "overlay" => show_overlay(app.clone(), None),
-                    "quit" => app.exit(0),
-                    _ => {}
-                })
-                .on_tray_icon_event(|tray, event| {
-                    if let TrayIconEvent::Click {
-                        button: MouseButton::Left,
-                        button_state: MouseButtonState::Up,
-                        ..
-                    } = event
-                    {
-                        if let Some(window) = tray.app_handle().get_webview_window("main") {
-                            let _ = window.show();
-                            let _ = window.set_focus();
-                        }
-                    }
-                });
             if let Some(icon) = app.default_window_icon() {
-                tray = tray.icon(icon.clone());
+                let menu = build_tray_menu(app.handle(), "en")?;
+                let tray = TrayIconBuilder::with_id("main-tray")
+                    .menu(&menu)
+                    .show_menu_on_left_click(false)
+                    .on_menu_event(|app, event| match event.id().as_ref() {
+                        "open" => {
+                            if let Some(window) = app.get_webview_window("main") {
+                                let _ = window.show();
+                                let _ = window.set_focus();
+                            }
+                        }
+                        "capture" => {
+                            show_capture_overlay(app.clone());
+                        }
+                        "overlay" => show_overlay(app.clone(), None),
+                        "quit" => app.exit(0),
+                        _ => {}
+                    })
+                    .on_tray_icon_event(|tray, event| {
+                        if let TrayIconEvent::Click {
+                            button: MouseButton::Left,
+                            button_state: MouseButtonState::Up,
+                            ..
+                        } = event
+                        {
+                            if let Some(window) = tray.app_handle().get_webview_window("main") {
+                                let _ = window.show();
+                                let _ = window.set_focus();
+                            }
+                        }
+                    })
+                    .icon(icon.clone());
+                if let Err(error) = tray.build(app) {
+                    eprintln!("AtrisShot tray icon could not be created: {error}");
+                }
+            } else {
+                eprintln!(
+                    "AtrisShot tray icon skipped because the default window icon is unavailable."
+                );
             }
-            tray.build(app)?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -1647,6 +1710,31 @@ mod tests {
     }
 
     #[test]
+    fn history_entry_file_cleanup_removes_original_edited_and_thumbnail() {
+        let id = now_id();
+        let root = std::env::temp_dir().join(format!("atrisshot-entry-cleanup-test-{id}"));
+        fs::create_dir_all(&root).expect("create cleanup test dir");
+        let original = root.join("original.png");
+        let edited = root.join("edited.png");
+        let thumbnail = root.join("thumb.png");
+        fs::write(&original, b"original").expect("write original");
+        fs::write(&edited, b"edited").expect("write edited");
+        fs::write(&thumbnail, b"thumb").expect("write thumbnail");
+
+        let mut entry = sample_history_entry("cleanup");
+        entry.original_path = original.to_string_lossy().to_string();
+        entry.edited_path = Some(edited.to_string_lossy().to_string());
+        entry.thumbnail_path = Some(thumbnail.to_string_lossy().to_string());
+
+        remove_history_entry_files(&entry);
+
+        assert!(!original.exists());
+        assert!(!edited.exists());
+        assert!(!thumbnail.exists());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn existing_path_rejects_empty_or_missing_paths() {
         assert!(existing_path_from_user_input("").is_err());
         assert!(existing_path_from_user_input("definitely-missing-shot.png").is_err());
@@ -1711,7 +1799,7 @@ mod tests {
                 &monitor_size,
                 &window_size
             ),
-            PhysicalPosition { x: 124, y: 1152 }
+            PhysicalPosition { x: 124, y: 1104 }
         );
         assert_eq!(
             overlay_position(
@@ -1720,7 +1808,7 @@ mod tests {
                 &monitor_size,
                 &window_size
             ),
-            PhysicalPosition { x: 1676, y: 1152 }
+            PhysicalPosition { x: 1676, y: 1104 }
         );
         assert_eq!(
             overlay_position("top-right", &monitor_position, &monitor_size, &window_size),

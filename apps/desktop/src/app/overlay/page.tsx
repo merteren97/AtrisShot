@@ -10,6 +10,7 @@ export default function OverlayPage() {
   const [entry, setEntry] = useState<ShotHistoryEntry | null>(null);
   const [previewUrl, setPreviewUrl] = useState("");
   const shotPath = entry?.editedPath || entry?.originalPath || "";
+  const displayPath = formatPathForDisplay(shotPath);
   const requestEdit = async () => {
     if (!entry) return;
     await nativeRuntime.openEditorWindow(entry.id);
@@ -22,23 +23,31 @@ export default function OverlayPage() {
       return;
     }
     event.dataTransfer.effectAllowed = "copy";
-    event.dataTransfer.setData("text/plain", shotPath);
+    event.dataTransfer.setData("text/plain", displayPath);
   };
 
   useEffect(() => {
     document.documentElement.classList.add("overlay-window");
     document.body.classList.add("overlay-window");
     let unlistenShot: (() => void) | undefined;
-    void nativeRuntime.latestShot().then((next) => {
+    let unlistenOpened: (() => void) | undefined;
+    const refreshLatest = () => nativeRuntime.latestShot().then((next) => {
       if (next) setEntry(next);
     }).catch(() => undefined);
+    void refreshLatest();
     void nativeRuntime.onShotCaptured((next) => setEntry(next)).then((dispose) => {
       unlistenShot = dispose;
+    });
+    void nativeRuntime.onResultOverlayOpened(() => {
+      void refreshLatest();
+    }).then((dispose) => {
+      unlistenOpened = dispose;
     });
     return () => {
       document.documentElement.classList.remove("overlay-window");
       document.body.classList.remove("overlay-window");
       unlistenShot?.();
+      unlistenOpened?.();
     };
   }, []);
 
@@ -113,13 +122,19 @@ export default function OverlayPage() {
               draggable={Boolean(entry)}
               onDragStart={startPathDrag}
               className="mt-1 cursor-copy truncate text-[11px] text-muted-foreground"
-              title={shotPath || undefined}
+              title={displayPath || undefined}
             >
-              {shotPath || "Last screenshot will appear here."}
+              {displayPath || "Last screenshot will appear here."}
             </p>
           </div>
         </div>
       </div>
     </main>
   );
+}
+
+function formatPathForDisplay(path: string) {
+  if (path.startsWith("\\\\?\\UNC\\")) return `\\\\${path.slice("\\\\?\\UNC\\".length)}`;
+  if (path.startsWith("\\\\?\\")) return path.slice("\\\\?\\".length);
+  return path;
 }

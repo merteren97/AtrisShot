@@ -108,6 +108,10 @@ export const nativeRuntime = {
   emitDesktopSettingsChanged: () => emit("desktop-settings-changed"),
   onDesktopSettingsChanged: (callback: () => void) =>
     listen("desktop-settings-changed", callback),
+  onCaptureOverlayOpened: (callback: () => void) =>
+    listen("capture-overlay-opened", callback),
+  onResultOverlayOpened: (callback: () => void) =>
+    listen("result-overlay-opened", callback),
   emitUiPreferencesChanged: (preferences: { locale: string; theme: string }) =>
     emit("ui-preferences-changed", preferences),
   setTrayLocale: (locale: string) => invoke<void>("set_tray_locale", { locale }),

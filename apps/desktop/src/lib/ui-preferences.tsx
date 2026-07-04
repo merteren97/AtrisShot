@@ -65,6 +65,11 @@ const UiPreferencesContext = createContext<{
   t: (key: MessageKey) => string;
 } | null>(null);
 
+function syncTrayLocale(locale: Locale) {
+  if (!isNativeRuntime()) return;
+  void nativeRuntime.setTrayLocale(locale).catch(() => undefined);
+}
+
 export function UiPreferencesProvider({ children }: { children: React.ReactNode }) {
   const [locale, setLocaleState] = useState<Locale>("en");
   const [theme, setThemeState] = useState<ThemeMode>("system");
@@ -75,7 +80,7 @@ export function UiPreferencesProvider({ children }: { children: React.ReactNode 
     const nextLocale = storedLocale === "tr" ? "tr" : "en";
     setLocaleState(nextLocale);
     setThemeState(["system", "light", "dark"].includes(storedTheme || "") ? storedTheme! : "system");
-    if (isNativeRuntime()) void nativeRuntime.setTrayLocale(nextLocale);
+    syncTrayLocale(nextLocale);
   }, []);
 
   useEffect(() => {
@@ -117,7 +122,7 @@ export function UiPreferencesProvider({ children }: { children: React.ReactNode 
         localStorage.setItem("atrisshot-locale", next);
         setLocaleState(next);
         if (isNativeRuntime()) {
-          void nativeRuntime.setTrayLocale(next);
+          syncTrayLocale(next);
           void nativeRuntime.emitUiPreferencesChanged({ locale: next, theme });
         }
       },
