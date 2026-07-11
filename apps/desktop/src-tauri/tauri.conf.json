@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "AtrisShot",
-  "version": "0.1.0",
+  "version": "1.0.1",
   "identifier": "com.atris.shot",
   "build": {
     "frontendDist": "../out",
@@ -11,12 +11,60 @@
   },
   "app": {
     "windows": [
-      { "label": "main", "title": "AtrisShot", "width": 1120, "height": 720, "minWidth": 900, "minHeight": 600, "resizable": true, "fullscreen": false },
-      { "label": "editor", "title": "AtrisShot Editor", "url": "/editor", "width": 1120, "height": 760, "minWidth": 860, "minHeight": 560, "resizable": true, "fullscreen": false, "visible": false },
-      { "label": "overlay", "title": "AtrisShot Result", "url": "/overlay", "width": 440, "height": 190, "transparent": true, "alwaysOnTop": true, "decorations": false, "shadow": false, "resizable": false, "skipTaskbar": true, "visible": false },
-      { "label": "capture", "title": "AtrisShot Capture", "url": "/capture-overlay", "width": 1440, "height": 900, "transparent": true, "alwaysOnTop": true, "decorations": false, "shadow": false, "resizable": false, "skipTaskbar": true, "visible": false }
+      {
+        "label": "main",
+        "title": "AtrisShot",
+        "width": 1120,
+        "height": 720,
+        "minWidth": 900,
+        "minHeight": 600,
+        "resizable": true,
+        "fullscreen": false
+      },
+      {
+        "label": "editor",
+        "title": "AtrisShot Editor",
+        "url": "/editor",
+        "width": 1120,
+        "height": 760,
+        "minWidth": 860,
+        "minHeight": 560,
+        "resizable": true,
+        "fullscreen": false,
+        "visible": false
+      },
+      {
+        "label": "overlay",
+        "title": "AtrisShot Result",
+        "url": "/overlay",
+        "width": 440,
+        "height": 190,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "decorations": false,
+        "shadow": false,
+        "resizable": false,
+        "skipTaskbar": true,
+        "visible": false
+      },
+      {
+        "label": "capture",
+        "title": "AtrisShot Capture",
+        "url": "/capture-overlay",
+        "width": 1440,
+        "height": 900,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "decorations": false,
+        "shadow": false,
+        "resizable": false,
+        "skipTaskbar": true,
+        "visible": false
+      }
     ],
-    "security": { "csp": null }
+    "security": {
+      "csp": null
+    }
   },
   "bundle": {
     "active": true,
@@ -34,7 +82,9 @@
   },
   "plugins": {
     "updater": {
-      "endpoints": ["https://shot.atrishub.com/api/releases/update/{{target}}/{{current_version}}"],
+      "endpoints": [
+        "https://shot.atrishub.com/api/releases/update/{{target}}/{{current_version}}"
+      ],
       "pubkey": "REPLACE_WITH_PRODUCTION_TAURI_UPDATER_PUBLIC_KEY"
     }
   }

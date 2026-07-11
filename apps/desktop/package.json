@@ -1,6 +1,6 @@
 {
   "name": "@atris-shot/desktop",
-  "version": "0.1.0",
+  "version": "1.0.1",
   "private": true,
   "scripts": {
     "dev": "cross-env NEXT_DIST_DIR=next-dev-cache next dev -p 3009",

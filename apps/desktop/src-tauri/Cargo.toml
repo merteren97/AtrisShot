@@ -1,6 +1,6 @@
 [package]
 name = "atris-shot"
-version = "0.1.0"
+version = "1.0.1"
 description = "AtrisShot desktop application"
 authors = ["AtrisHub"]
 edition = "2021"

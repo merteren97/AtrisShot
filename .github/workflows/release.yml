@@ -2,7 +2,7 @@ name: Release AtrisShot Desktop
 on:
   workflow_dispatch:
     inputs:
-      release_version: { description: "Enter only v0.1.0-1 (prerelease) or v0.1.0 (stable)", required: true, type: string }
+      release_version: { description: "Enter only v1.0.1-1 (prerelease) or v1.0.1 (stable)", required: true, type: string }
       prerelease: { description: "Mark as prerelease", required: true, default: true, type: boolean }
 permissions:
   contents: write

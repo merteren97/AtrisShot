@@ -84,6 +84,8 @@ struct ShotHistoryEntry {
     display_name: String,
     region: CaptureRegion,
     annotations_count: u32,
+    #[serde(default)]
+    annotations: Vec<ShotAnnotation>,
 }
 
 #[derive(Serialize)]
@@ -94,16 +96,17 @@ struct CaptureResult {
     copied_path: bool,
 }
 
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct AnnotationPoint {
     x: f32,
     y: f32,
 }
 
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ShotAnnotation {
+    id: String,
     tool: String,
     color: String,
     stroke_width: Option<u32>,
@@ -1110,6 +1113,7 @@ fn capture_shot(
         display_name: display.name,
         region: captured_region,
         annotations_count: 0,
+        annotations: Vec::new(),
     };
     let mut entries = store
         .entries
@@ -1218,6 +1222,7 @@ fn apply_annotations(
     render_annotations(&original_path, &edited_path, &annotations)?;
     let thumbnail_path = write_thumbnail(&edited_path, &entry.id).ok();
     entry.annotations_count = annotations_count;
+    entry.annotations = annotations;
     entry.edited_path = Some(display_path(&edited_path));
     entry.thumbnail_path = thumbnail_path.map(|path| display_path(&path));
     let next = entry.clone();
@@ -1710,6 +1715,35 @@ mod tests {
     }
 
     #[test]
+    fn history_annotations_round_trip_and_legacy_entries_default_empty() {
+        let mut entry = sample_history_entry("annotated");
+        entry.annotations = vec![ShotAnnotation {
+            id: "text-1".to_string(),
+            tool: "text".to_string(),
+            color: "#ffffff".to_string(),
+            stroke_width: Some(1),
+            points: vec![AnnotationPoint { x: 10.0, y: 12.0 }],
+            text: Some("Editable".to_string()),
+            font_size: Some(24),
+        }];
+
+        let encoded = serde_json::to_value(&entry).expect("serialize annotated history");
+        let decoded: ShotHistoryEntry =
+            serde_json::from_value(encoded.clone()).expect("deserialize annotated history");
+        assert_eq!(decoded.annotations[0].id, "text-1");
+        assert_eq!(decoded.annotations[0].text.as_deref(), Some("Editable"));
+
+        let mut legacy = encoded;
+        legacy
+            .as_object_mut()
+            .expect("history object")
+            .remove("annotations");
+        let legacy_entry: ShotHistoryEntry =
+            serde_json::from_value(legacy).expect("deserialize legacy history");
+        assert!(legacy_entry.annotations.is_empty());
+    }
+
+    #[test]
     fn history_entry_file_cleanup_removes_original_edited_and_thumbnail() {
         let id = now_id();
         let root = std::env::temp_dir().join(format!("atrisshot-entry-cleanup-test-{id}"));
@@ -1883,6 +1917,7 @@ mod tests {
         image.save(&original).expect("write original");
         let annotations = vec![
             ShotAnnotation {
+                id: "rectangle".to_string(),
                 tool: "rectangle".to_string(),
                 color: "#0ea5e9".to_string(),
                 stroke_width: Some(3),
@@ -1894,6 +1929,7 @@ mod tests {
                 font_size: None,
             },
             ShotAnnotation {
+                id: "ellipse".to_string(),
                 tool: "ellipse".to_string(),
                 color: "#22c55e".to_string(),
                 stroke_width: Some(3),
@@ -1905,6 +1941,7 @@ mod tests {
                 font_size: None,
             },
             ShotAnnotation {
+                id: "line".to_string(),
                 tool: "line".to_string(),
                 color: "#f59e0b".to_string(),
                 stroke_width: Some(3),
@@ -1916,6 +1953,7 @@ mod tests {
                 font_size: None,
             },
             ShotAnnotation {
+                id: "text".to_string(),
                 tool: "text".to_string(),
                 color: "#ef4444".to_string(),
                 stroke_width: Some(1),
@@ -1969,6 +2007,7 @@ mod tests {
                 height: 80,
             },
             annotations_count: 0,
+            annotations: Vec::new(),
         }
     }
 }

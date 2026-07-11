@@ -45,6 +45,7 @@ export interface ShotHistoryEntry {
   displayName: string;
   region: CaptureRegion;
   annotationsCount: number;
+  annotations?: ShotAnnotation[];
 }
 
 export type AnnotationTool = "rectangle" | "ellipse" | "line" | "arrow" | "pen" | "text" | "blur";
