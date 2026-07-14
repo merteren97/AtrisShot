@@ -85,6 +85,8 @@ struct ShotHistoryEntry {
     region: CaptureRegion,
     annotations_count: u32,
     #[serde(default)]
+    edit_revision: u64,
+    #[serde(default)]
     annotations: Vec<ShotAnnotation>,
 }
 
@@ -110,6 +112,8 @@ struct ShotAnnotation {
     tool: String,
     color: String,
     stroke_width: Option<u32>,
+    #[serde(default)]
+    blur_pixel_size: Option<u32>,
     points: Vec<AnnotationPoint>,
     text: Option<String>,
     font_size: Option<u32>,
@@ -947,7 +951,12 @@ fn render_annotations(
                     draw_line(&mut image, &pair[0], &pair[1], color, stroke_width);
                 }
             }
-            "blur" => pixelate_region(&mut image, start, end, stroke_width),
+            "blur" => pixelate_region(
+                &mut image,
+                start,
+                end,
+                annotation.blur_pixel_size.unwrap_or(stroke_width),
+            ),
             "text" => {
                 let text = annotation.text.as_deref().unwrap_or("").trim();
                 if !text.is_empty() {
@@ -1113,6 +1122,7 @@ fn capture_shot(
         display_name: display.name,
         region: captured_region,
         annotations_count: 0,
+        edit_revision: 0,
         annotations: Vec::new(),
     };
     let mut entries = store
@@ -1222,6 +1232,7 @@ fn apply_annotations(
     render_annotations(&original_path, &edited_path, &annotations)?;
     let thumbnail_path = write_thumbnail(&edited_path, &entry.id).ok();
     entry.annotations_count = annotations_count;
+    entry.edit_revision = entry.edit_revision.saturating_add(1);
     entry.annotations = annotations;
     entry.edited_path = Some(display_path(&edited_path));
     entry.thumbnail_path = thumbnail_path.map(|path| display_path(&path));
@@ -1722,6 +1733,7 @@ mod tests {
             tool: "text".to_string(),
             color: "#ffffff".to_string(),
             stroke_width: Some(1),
+            blur_pixel_size: None,
             points: vec![AnnotationPoint { x: 10.0, y: 12.0 }],
             text: Some("Editable".to_string()),
             font_size: Some(24),
@@ -1738,9 +1750,14 @@ mod tests {
             .as_object_mut()
             .expect("history object")
             .remove("annotations");
+        legacy
+            .as_object_mut()
+            .expect("history object")
+            .remove("editRevision");
         let legacy_entry: ShotHistoryEntry =
             serde_json::from_value(legacy).expect("deserialize legacy history");
         assert!(legacy_entry.annotations.is_empty());
+        assert_eq!(legacy_entry.edit_revision, 0);
     }
 
     #[test]
@@ -1921,6 +1938,7 @@ mod tests {
                 tool: "rectangle".to_string(),
                 color: "#0ea5e9".to_string(),
                 stroke_width: Some(3),
+                blur_pixel_size: None,
                 points: vec![
                     AnnotationPoint { x: 8.0, y: 8.0 },
                     AnnotationPoint { x: 48.0, y: 34.0 },
@@ -1933,6 +1951,7 @@ mod tests {
                 tool: "ellipse".to_string(),
                 color: "#22c55e".to_string(),
                 stroke_width: Some(3),
+                blur_pixel_size: None,
                 points: vec![
                     AnnotationPoint { x: 54.0, y: 8.0 },
                     AnnotationPoint { x: 74.0, y: 32.0 },
@@ -1945,6 +1964,7 @@ mod tests {
                 tool: "line".to_string(),
                 color: "#f59e0b".to_string(),
                 stroke_width: Some(3),
+                blur_pixel_size: None,
                 points: vec![
                     AnnotationPoint { x: 10.0, y: 52.0 },
                     AnnotationPoint { x: 70.0, y: 52.0 },
@@ -1957,6 +1977,7 @@ mod tests {
                 tool: "text".to_string(),
                 color: "#ef4444".to_string(),
                 stroke_width: Some(1),
+                blur_pixel_size: None,
                 points: vec![AnnotationPoint { x: 12.0, y: 40.0 }],
                 text: Some("OK".to_string()),
                 font_size: Some(14),
@@ -1968,6 +1989,51 @@ mod tests {
         let edited_image = image::open(&edited).expect("open edited image").to_rgba8();
         assert_ne!(*edited_image.get_pixel(74, 20), Rgba([255, 255, 255, 255]));
         assert_ne!(*edited_image.get_pixel(40, 52), Rgba([255, 255, 255, 255]));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn render_annotations_rebuilds_from_original_on_second_save() {
+        let id = now_id();
+        let root = std::env::temp_dir().join(format!("atrisshot-render-repeat-test-{id}"));
+        fs::create_dir_all(&root).expect("create test directory");
+        let original = root.join("original.png");
+        let edited = root.join("edited.png");
+        let image = RgbaImage::from_pixel(80, 60, Rgba([255, 255, 255, 255]));
+        image.save(&original).expect("write original");
+        let first = vec![ShotAnnotation {
+            id: "first".to_string(),
+            tool: "rectangle".to_string(),
+            color: "#ef4444".to_string(),
+            stroke_width: Some(3),
+            blur_pixel_size: None,
+            points: vec![
+                AnnotationPoint { x: 5.0, y: 5.0 },
+                AnnotationPoint { x: 25.0, y: 25.0 },
+            ],
+            text: None,
+            font_size: None,
+        }];
+        render_annotations(&original, &edited, &first).expect("first render");
+        let second = vec![
+            first[0].clone(),
+            ShotAnnotation {
+                id: "second".to_string(),
+                tool: "line".to_string(),
+                color: "#0ea5e9".to_string(),
+                stroke_width: Some(3),
+                blur_pixel_size: None,
+                points: vec![
+                    AnnotationPoint { x: 50.0, y: 10.0 },
+                    AnnotationPoint { x: 70.0, y: 10.0 },
+                ],
+                text: None,
+                font_size: None,
+            },
+        ];
+        render_annotations(&original, &edited, &second).expect("second render");
+        let output = image::open(&edited).expect("open edited image").to_rgba8();
+        assert_ne!(*output.get_pixel(60, 10), Rgba([255, 255, 255, 255]));
         let _ = fs::remove_dir_all(root);
     }
 
@@ -2007,6 +2073,7 @@ mod tests {
                 height: 80,
             },
             annotations_count: 0,
+            edit_revision: 0,
             annotations: Vec::new(),
         }
     }

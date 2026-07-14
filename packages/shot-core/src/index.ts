@@ -45,6 +45,7 @@ export interface ShotHistoryEntry {
   displayName: string;
   region: CaptureRegion;
   annotationsCount: number;
+  editRevision: number;
   annotations?: ShotAnnotation[];
 }
 
@@ -55,6 +56,7 @@ export interface ShotAnnotation {
   tool: AnnotationTool;
   color: string;
   strokeWidth: number;
+  blurPixelSize?: number;
   points: Array<{ x: number; y: number }>;
   text?: string;
   fontSize?: number;

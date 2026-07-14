@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type PointerEvent, type RefObject } from "react";
+import { useCallback, useEffect, useRef, useState, type PointerEvent, type RefObject, type WheelEvent as ReactWheelEvent } from "react";
 import {
   ArrowUpRight,
   Check,
@@ -14,6 +14,9 @@ import {
   RotateCcw,
   Trash2,
   Type,
+  ZoomIn,
+  ZoomOut,
+  Maximize2,
   type LucideIcon,
 } from "lucide-react";
 import type { ShotAnnotation, ShotHistoryEntry } from "@atris-shot/shot-core";
@@ -53,6 +56,10 @@ const editorCopy = {
     preparing: "Preparing the editor window.",
     pending: "pending",
     pixelSize: "Pixel size",
+    fit: "Fit",
+    zoomReset: "100%",
+    zoomOut: "Zoom out",
+    zoomIn: "Zoom in",
     stroke: "Stroke",
     textSize: "Text size",
     typing: "Typing",
@@ -89,6 +96,10 @@ const editorCopy = {
     preparing: "Editör penceresi hazırlanıyor.",
     pending: "bekliyor",
     pixelSize: "Piksel boyutu",
+    fit: "Sığdır",
+    zoomReset: "%100",
+    zoomOut: "Uzaklaştır",
+    zoomIn: "Yakınlaştır",
     stroke: "Çizgi",
     textSize: "Yazı boyutu",
     typing: "Yazılıyor",
@@ -113,7 +124,7 @@ type EditorText = Omit<Record<keyof typeof editorCopy.en, string>, "tools"> & {
   tools: Record<EditorTool, string>;
 };
 
-function useShotDataUrl(path?: string | null) {
+function useShotDataUrl(path?: string | null, revision?: number) {
   const [dataUrl, setDataUrl] = useState("");
   const [failed, setFailed] = useState(false);
 
@@ -133,7 +144,7 @@ function useShotDataUrl(path?: string | null) {
     return () => {
       cancelled = true;
     };
-  }, [path]);
+  }, [path, revision]);
 
   return { dataUrl, failed };
 }
@@ -160,7 +171,7 @@ export function ShotEditorWindow() {
         setStatus("Empty");
         return;
       }
-      const exists = await nativeRuntime.pathExists(next.editedPath || next.originalPath);
+      const exists = await nativeRuntime.pathExists(next.originalPath);
       setFileMissing(!exists);
       setStatus(exists ? "Ready" : "Missing");
     } catch (error) {
@@ -243,6 +254,8 @@ function ShotEditor({
   const { locale } = useUiPreferences();
   const text = editorCopy[locale];
   const canvasRef = useRef<HTMLDivElement | null>(null);
+  const viewportRef = useRef<HTMLDivElement | null>(null);
+  const annotationsRef = useRef(annotations);
   const textInputRef = useRef<HTMLTextAreaElement | null>(null);
   const [activeTool, setActiveTool] = useState<EditorTool>("select");
   const [draftColor, setDraftColor] = useState("#0ea5e9");
@@ -254,6 +267,11 @@ function ShotEditor({
   const [editingTextId, setEditingTextId] = useState<string | null>(null);
   const [annotationsDirty, setAnnotationsDirty] = useState(false);
   const [undoStack, setUndoStack] = useState<ShotAnnotation[][]>([]);
+  const [zoomMode, setZoomMode] = useState<"fit" | "manual">("fit");
+  const [manualZoom, setManualZoom] = useState(1);
+  const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 });
+  const [spacePressed, setSpacePressed] = useState(false);
+  const [panInteraction, setPanInteraction] = useState<{ x: number; y: number; scrollLeft: number; scrollTop: number } | null>(null);
   const [editInteraction, setEditInteraction] = useState<{
     id: string;
     mode: "move" | "resize" | "resize-start";
@@ -261,12 +279,29 @@ function ShotEditor({
     originalPoints: Array<{ x: number; y: number }>;
   } | null>(null);
 
-  const imagePath = entry ? entry.editedPath || entry.originalPath : "";
+  const imagePath = entry ? entry.originalPath : "";
   const imagePathDisplay = formatPathForDisplay(imagePath);
-  const { dataUrl: imageUrl, failed: imageFailed } = useShotDataUrl(imagePath);
+  const { dataUrl: imageUrl, failed: imageFailed } = useShotDataUrl(imagePath, entry?.editRevision);
   const selectedAnnotation = annotations.find((annotation) => annotation.id === selectedAnnotationId) || null;
   const canApply = Boolean(entry && !fileMissing && annotationsDirty);
-  const canvasRatio = entry ? `${entry.width} / ${entry.height}` : "16 / 9";
+  const fitZoom = entry && viewportSize.width > 0 && viewportSize.height > 0
+    ? Math.min(1, (viewportSize.width - 32) / entry.width, (viewportSize.height - 32) / entry.height)
+    : 1;
+  const zoomScale = zoomMode === "fit" ? Math.max(0.05, fitZoom) : manualZoom;
+
+  useEffect(() => {
+    annotationsRef.current = annotations;
+  }, [annotations]);
+
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    const update = () => setViewportSize({ width: viewport.clientWidth, height: viewport.clientHeight });
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(viewport);
+    return () => observer.disconnect();
+  }, [entry?.id]);
 
   useEffect(() => {
     setDrawingId(null);
@@ -276,6 +311,9 @@ function ShotEditor({
     setEditInteraction(null);
     setUndoStack([]);
     setAnnotationsDirty(false);
+    setZoomMode("fit");
+    setManualZoom(1);
+    setPanInteraction(null);
   }, [entry?.id, entryLoadToken]);
 
   useEffect(() => {
@@ -296,11 +334,14 @@ function ShotEditor({
 
   const updateAnnotation = (id: string, updater: (annotation: ShotAnnotation) => ShotAnnotation) => {
     setAnnotationsDirty(true);
-    onAnnotationsChange(annotations.map((annotation) => (annotation.id === id ? updater(annotation) : annotation)));
+    const next = annotationsRef.current.map((annotation) => (annotation.id === id ? updater(annotation) : annotation));
+    annotationsRef.current = next;
+    onAnnotationsChange(next);
   };
 
   const changeAnnotations = (next: ShotAnnotation[]) => {
     setAnnotationsDirty(true);
+    annotationsRef.current = next;
     onAnnotationsChange(next);
   };
 
@@ -331,6 +372,17 @@ function ShotEditor({
 
   const startDrawing = (event: PointerEvent<HTMLDivElement>) => {
     if (!entry || (event.target as HTMLElement).closest("[data-editor-inline-text]")) return;
+    if (spacePressed) {
+      event.preventDefault();
+      event.currentTarget.setPointerCapture(event.pointerId);
+      setPanInteraction({
+        x: event.clientX,
+        y: event.clientY,
+        scrollLeft: viewportRef.current?.scrollLeft || 0,
+        scrollTop: viewportRef.current?.scrollTop || 0,
+      });
+      return;
+    }
     const point = pointFromEvent(event);
     if (!point) return;
 
@@ -406,13 +458,22 @@ function ShotEditor({
 
   const continueDrawing = (event: PointerEvent<HTMLDivElement>) => {
     if (!entry) return;
+    if (panInteraction) {
+      const viewport = viewportRef.current;
+      if (viewport) {
+        viewport.scrollLeft = panInteraction.scrollLeft - (event.clientX - panInteraction.x);
+        viewport.scrollTop = panInteraction.scrollTop - (event.clientY - panInteraction.y);
+      }
+      return;
+    }
     if (editInteraction) {
       const point = pointFromEvent(event);
       if (!point) return;
       const dx = point.x - editInteraction.start.x;
       const dy = point.y - editInteraction.start.y;
+      const currentAnnotations = annotationsRef.current;
       changeAnnotations(
-        annotations.map((annotation) => {
+        currentAnnotations.map((annotation) => {
           if (annotation.id !== editInteraction.id) return annotation;
           if (editInteraction.mode === "resize-start") {
             const second = editInteraction.originalPoints[1] || editInteraction.originalPoints[0] || point;
@@ -423,10 +484,7 @@ function ShotEditor({
             const next = { ...annotation, points: [first, clampPoint(point, entry)] };
             return annotation.tool === "text" ? resizeTextBounds(annotation, point, entry) : next;
           }
-          return {
-            ...annotation,
-            points: editInteraction.originalPoints.map((item) => clampPoint({ x: item.x + dx, y: item.y + dy }, entry)),
-          };
+          return translateAnnotation(annotation, editInteraction.originalPoints, dx, dy, entry);
         }),
       );
       return;
@@ -440,7 +498,8 @@ function ShotEditor({
         id,
         tool: activeTool,
         color: activeTool === "blur" ? "#64748b" : draftColor,
-        strokeWidth: activeTool === "blur" ? Math.max(DEFAULT_BLUR_PIXEL_SIZE, strokeWidth) : strokeWidth,
+        strokeWidth: activeTool === "blur" ? 1 : strokeWidth,
+        blurPixelSize: activeTool === "blur" ? Math.max(4, strokeWidth) : undefined,
         points: activeTool === "pen" ? [pendingDraw.start, point] : [pendingDraw.start, point],
       };
       rememberUndo();
@@ -453,8 +512,9 @@ function ShotEditor({
     if (!drawingId) return;
     const point = pointFromEvent(event);
     if (!point) return;
+    const currentAnnotations = annotationsRef.current;
     changeAnnotations(
-      annotations.map((annotation) => {
+      currentAnnotations.map((annotation) => {
         if (annotation.id !== drawingId) return annotation;
         if (annotation.tool === "pen") return { ...annotation, points: [...annotation.points, point] };
         return { ...annotation, points: [annotation.points[0] || point, point] };
@@ -463,13 +523,14 @@ function ShotEditor({
   };
 
   const finishDrawing = (event: PointerEvent<HTMLDivElement>) => {
-    if (!drawingId && !editInteraction && !pendingDraw) return;
+    if (!drawingId && !editInteraction && !pendingDraw && !panInteraction) return;
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
     setDrawingId(null);
     setPendingDraw(null);
     setEditInteraction(null);
+    setPanInteraction(null);
   };
 
   const setActiveToolAndSync = (tool: EditorTool) => {
@@ -477,7 +538,7 @@ function ShotEditor({
     setEditingTextId(null);
     if (selectedAnnotation && selectedAnnotation.tool === tool) {
       setDraftColor(selectedAnnotation.color);
-      setStrokeWidth(selectedAnnotation.strokeWidth);
+      setStrokeWidth(tool === "blur" ? selectedAnnotation.blurPixelSize ?? selectedAnnotation.strokeWidth : selectedAnnotation.strokeWidth);
       if (selectedAnnotation.fontSize) setFontSize(selectedAnnotation.fontSize);
     } else if (tool === "blur") {
       setStrokeWidth(DEFAULT_BLUR_PIXEL_SIZE);
@@ -491,7 +552,11 @@ function ShotEditor({
 
   const updateStrokeWidth = (width: number) => {
     setStrokeWidth(width);
-    if (selectedAnnotationId) updateAnnotationWithUndo(selectedAnnotationId, (annotation) => ({ ...annotation, strokeWidth: annotation.tool === "text" ? annotation.strokeWidth : width }));
+    if (selectedAnnotationId) {
+      updateAnnotationWithUndo(selectedAnnotationId, (annotation) => annotation.tool === "blur"
+        ? { ...annotation, blurPixelSize: width }
+        : annotation.tool === "text" ? annotation : { ...annotation, strokeWidth: width });
+    }
   };
 
   const updateFontSize = (size: number) => {
@@ -531,10 +596,75 @@ function ShotEditor({
     setAnnotationsDirty(false);
   };
 
+  const setZoom = (next: number) => {
+    setZoomMode("manual");
+    setManualZoom(Math.max(0.1, Math.min(4, next)));
+  };
+
+  const zoomBy = (factor: number) => setZoom((zoomMode === "fit" ? zoomScale : manualZoom) * factor);
+
+  const handleWheel = (event: ReactWheelEvent<HTMLDivElement>) => {
+    if (!event.ctrlKey) return;
+    event.preventDefault();
+    const canvas = canvasRef.current;
+    const viewport = viewportRef.current;
+    if (!canvas || !viewport) return;
+    const before = canvas.getBoundingClientRect();
+    const ratioX = before.width ? (event.clientX - before.left) / before.width : 0.5;
+    const ratioY = before.height ? (event.clientY - before.top) / before.height : 0.5;
+    const nextScale = Math.max(0.1, Math.min(4, (zoomMode === "fit" ? zoomScale : manualZoom) * (event.deltaY < 0 ? 1.1 : 0.9)));
+    setZoom(nextScale);
+    window.requestAnimationFrame(() => {
+      const after = canvas.getBoundingClientRect();
+      const desiredLeft = event.clientX - ratioX * after.width;
+      const desiredTop = event.clientY - ratioY * after.height;
+      viewport.scrollLeft += after.left - desiredLeft;
+      viewport.scrollTop += after.top - desiredTop;
+    });
+  };
+
+  const handleViewportPointerMove = (event: PointerEvent<HTMLDivElement>) => {
+    if (!panInteraction) return;
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    viewport.scrollLeft = panInteraction.scrollLeft - (event.clientX - panInteraction.x);
+    viewport.scrollTop = panInteraction.scrollTop - (event.clientY - panInteraction.y);
+  };
+
+  const handleViewportPointerUp = (event: PointerEvent<HTMLDivElement>) => {
+    if (viewportRef.current?.hasPointerCapture(event.pointerId)) viewportRef.current.releasePointerCapture(event.pointerId);
+    setPanInteraction(null);
+  };
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       const typing = Boolean(target?.closest("[data-editor-inline-text]"));
+      if (event.code === "Space" && !typing) {
+        event.preventDefault();
+        setSpacePressed(true);
+        return;
+      }
+      if (!typing && event.ctrlKey && event.key === "0") {
+        event.preventDefault();
+        setZoomMode("fit");
+        return;
+      }
+      if (!typing && event.ctrlKey && event.key === "1") {
+        event.preventDefault();
+        setZoom(1);
+        return;
+      }
+      if (!typing && (event.key === "+" || event.key === "=")) {
+        event.preventDefault();
+        zoomBy(1.1);
+        return;
+      }
+      if (!typing && event.key === "-") {
+        event.preventDefault();
+        zoomBy(0.9);
+        return;
+      }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z" && !typing) {
         event.preventDefault();
         undo();
@@ -555,9 +685,16 @@ function ShotEditor({
         void applyCurrent();
       }
     };
+    const onKeyUp = (event: KeyboardEvent) => {
+      if (event.code === "Space") setSpacePressed(false);
+    };
     window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [annotations, canApply, onApply, selectedAnnotation, selectedAnnotationId, undoStack]);
+    window.addEventListener("keyup", onKeyUp);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+    };
+  }, [annotations, canApply, manualZoom, onApply, selectedAnnotation, selectedAnnotationId, undoStack, zoomMode, zoomScale]);
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -570,6 +707,20 @@ function ShotEditor({
         <ToolRail activeTool={activeTool} labels={text.tools} onSelect={setActiveToolAndSync} />
 
         <div className="flex justify-end gap-2">
+          <div className="flex items-center gap-1 rounded-full border bg-background/70 px-1">
+            <Button type="button" size="icon" variant="ghost" className="h-8 w-8" aria-label={text.zoomOut} title={text.zoomOut} onClick={() => zoomBy(0.9)}>
+              <ZoomOut className="h-4 w-4" />
+            </Button>
+            <button type="button" className="min-w-14 rounded-md px-2 py-1 text-xs font-medium tabular-nums hover:bg-accent" onClick={() => zoomMode === "fit" ? setZoom(1) : setZoomMode("fit")} title={zoomMode === "fit" ? text.zoomReset : text.fit}>
+              {zoomMode === "fit" ? text.fit : `${Math.round(manualZoom * 100)}%`}
+            </button>
+            <Button type="button" size="icon" variant="ghost" className="h-8 w-8" aria-label={text.zoomIn} title={text.zoomIn} onClick={() => zoomBy(1.1)}>
+              <ZoomIn className="h-4 w-4" />
+            </Button>
+            <Button type="button" size="icon" variant="ghost" className="h-8 w-8" aria-label={text.fit} title={text.fit} onClick={() => setZoomMode("fit")}>
+              <Maximize2 className="h-4 w-4" />
+            </Button>
+          </div>
           <Button type="button" size="icon" variant="ghost" aria-label={text.reload} title={text.reload} onClick={onReload}>
             <RotateCcw className="h-4 w-4" />
           </Button>
@@ -600,15 +751,22 @@ function ShotEditor({
       />
 
       <section className="min-h-0 flex-1 overflow-hidden p-4">
-        <div className="relative flex h-full items-center justify-center overflow-hidden rounded-lg border bg-card/40 p-4">
+        <div
+          ref={viewportRef}
+          className={cn("relative flex h-full items-center justify-center overflow-auto rounded-lg border bg-card/40 p-4", spacePressed ? "cursor-grab" : "")}
+          onWheel={handleWheel}
+          onPointerMove={handleViewportPointerMove}
+          onPointerUp={handleViewportPointerUp}
+          onPointerCancel={() => setPanInteraction(null)}
+        >
           {entry && fileMissing ? (
             <EditorState icon={Image} title={text.localFileMissing} description={text.localFileMissingDescription} />
           ) : entry && imageUrl ? (
             <div
               ref={canvasRef}
               data-editor-canvas
-              className={cn("relative max-h-full max-w-full overflow-hidden rounded-md border bg-background shadow-xl", activeTool === "select" ? "cursor-default" : "cursor-crosshair")}
-              style={{ aspectRatio: canvasRatio, height: "100%" }}
+              className={cn("relative shrink-0 overflow-hidden rounded-md border bg-background shadow-xl", spacePressed ? "cursor-grabbing" : activeTool === "select" ? "cursor-default" : "cursor-crosshair")}
+              style={{ width: entry.width * zoomScale, height: entry.height * zoomScale }}
               onPointerDown={startDrawing}
               onPointerMove={continueDrawing}
               onPointerUp={finishDrawing}
@@ -616,6 +774,7 @@ function ShotEditor({
                 setDrawingId(null);
                 setPendingDraw(null);
                 setEditInteraction(null);
+                setPanInteraction(null);
               }}
             >
               <img src={imageUrl} alt="" draggable={false} className="absolute inset-0 h-full w-full select-none object-fill" />
@@ -909,7 +1068,7 @@ function AnnotationPreview({
   const isText = annotation.tool === "text";
   const isEllipse = annotation.tool === "ellipse";
   const isBlur = annotation.tool === "blur";
-  const pixelSize = Math.max(4, Math.min(48, annotation.strokeWidth));
+  const pixelSize = Math.max(4, Math.min(48, annotation.blurPixelSize ?? annotation.strokeWidth ?? DEFAULT_BLUR_PIXEL_SIZE));
 
   if (isText && editing) {
     return (
@@ -972,7 +1131,7 @@ function AnnotationPreview({
           minHeight: isText ? 32 : undefined,
           borderColor: annotation.color,
           borderStyle: "solid",
-          borderWidth: isText ? (selected ? 1 : 0) : Math.max(1, annotation.strokeWidth),
+           borderWidth: isText ? (selected ? 1 : 0) : isBlur ? 0 : Math.max(1, annotation.strokeWidth),
           color: annotation.color,
           backgroundColor: isBlur ? "rgb(100 116 139 / 0.18)" : undefined,
           backgroundImage: isBlur
@@ -1036,6 +1195,29 @@ function clampPoint(point: { x: number; y: number }, entry: ShotHistoryEntry | n
   return {
     x: Math.max(0, Math.min(entry.width, Math.round(point.x))),
     y: Math.max(0, Math.min(entry.height, Math.round(point.y))),
+  };
+}
+
+function translateAnnotation(
+  annotation: ShotAnnotation,
+  originalPoints: Array<{ x: number; y: number }>,
+  dx: number,
+  dy: number,
+  entry: ShotHistoryEntry,
+) {
+  if (!originalPoints.length) return annotation;
+  const minX = Math.min(...originalPoints.map((point) => point.x));
+  const maxX = Math.max(...originalPoints.map((point) => point.x));
+  const minY = Math.min(...originalPoints.map((point) => point.y));
+  const maxY = Math.max(...originalPoints.map((point) => point.y));
+  const boundedDx = Math.max(-minX, Math.min(entry.width - maxX, dx));
+  const boundedDy = Math.max(-minY, Math.min(entry.height - maxY, dy));
+  return {
+    ...annotation,
+    points: originalPoints.map((point) => ({
+      x: Math.round(point.x + boundedDx),
+      y: Math.round(point.y + boundedDy),
+    })),
   };
 }
 

@@ -64,7 +64,7 @@ export default function OverlayPage() {
     return () => {
       cancelled = true;
     };
-  }, [shotPath]);
+  }, [shotPath, entry?.editRevision]);
 
   return (
     <main

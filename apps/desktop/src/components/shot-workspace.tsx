@@ -173,7 +173,7 @@ const localizedWorkspaceCopy = {
 
 type WorkspaceText = Record<keyof typeof workspaceCopy.en, string>;
 
-function useShotDataUrl(path?: string | null) {
+function useShotDataUrl(path?: string | null, revision?: number) {
   const [dataUrl, setDataUrl] = useState("");
   const [failed, setFailed] = useState(false);
 
@@ -193,21 +193,23 @@ function useShotDataUrl(path?: string | null) {
     return () => {
       cancelled = true;
     };
-  }, [path]);
+  }, [path, revision]);
 
   return { dataUrl, failed };
 }
 
 function ShotImage({
   path,
+  revision,
   className,
   loading,
 }: {
   path?: string | null;
+  revision?: number;
   className?: string;
   loading?: "lazy" | "eager";
 }) {
-  const { dataUrl, failed } = useShotDataUrl(path);
+  const { dataUrl, failed } = useShotDataUrl(path, revision);
   if (!path || failed) return <Image className="h-5 w-5 text-muted-foreground" />;
   if (!dataUrl) return <div className="h-full w-full animate-pulse bg-muted" aria-hidden="true" />;
   return <img src={dataUrl} alt="" className={className} loading={loading} draggable={false} />;
@@ -500,7 +502,7 @@ function HistoryWorkspace({
                     <button type="button" onClick={() => onSelect(entry)} className="block w-full min-w-0 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                       <span className="grid aspect-video w-full place-items-center overflow-hidden rounded-lg border bg-muted/50">
                         {entry.thumbnailPath && !isMissing ? (
-                          <ShotImage path={entry.thumbnailPath} className="h-full w-full object-cover" loading="lazy" />
+                          <ShotImage path={entry.thumbnailPath} revision={entry.editRevision} className="h-full w-full object-cover" loading="lazy" />
                         ) : (
                           <Image className="h-5 w-5 text-muted-foreground" />
                         )}
@@ -562,7 +564,7 @@ function HistoryWorkspace({
                       <p className="mt-2 max-w-md text-sm text-muted-foreground">{text.missingDescription}</p>
                     </div>
                   ) : (
-                    <ShotImage path={selected.editedPath || selected.originalPath} className="max-h-full max-w-full rounded-md border object-contain shadow-xl" loading="eager" />
+                    <ShotImage path={selected.editedPath || selected.originalPath} revision={selected.editRevision} className="max-h-full max-w-full rounded-md border object-contain shadow-xl" loading="eager" />
                   )}
                 </div>
                 <div className="grid content-start gap-3 sm:grid-cols-2 xl:grid-cols-1">
