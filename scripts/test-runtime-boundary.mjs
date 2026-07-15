@@ -263,6 +263,15 @@ assert.match(rust, /restore_internal_windows_after_capture/);
 assert.match(rust, /result-overlay-opened/);
 assert.match(rust, /"open-editor" => open_editor_window/);
 assert.match(rust, /tauri_plugin_dialog::init/);
+assert.match(rust, /tauri_plugin_single_instance::init/);
+assert.ok(
+  rust.indexOf("tauri_plugin_single_instance::init") <
+    rust.indexOf("tauri_plugin_clipboard_manager::init"),
+  "single-instance plugin must be registered before other plugins",
+);
+assert.match(rust, /window\.unminimize\(\)/);
+assert.match(rust, /window\.show\(\)/);
+assert.match(rust, /window\.set_focus\(\)/);
 assert.match(rust, /window\.label\(\), "main" \| "editor"/);
 assert.doesNotMatch(rust, /unwrap_or\("NOTE"\)/);
 assert.match(rust, /pixelate_region\([\s\S]*annotation\.blur_pixel_size\.unwrap_or\(stroke_width\)/);
@@ -275,6 +284,14 @@ assert.match(editorWindow, /editRevision/);
 assert.match(editorWindow, /originalPath/);
 assert.match(editorWindow, /spacePressed/);
 assert.match(editorWindow, /translateAnnotation/);
+assert.match(editorWindow, /selectedAnnotationIdRef/);
+assert.match(editorWindow, /editInteractionRef/);
+assert.match(editorWindow, /pendingDrawRef/);
+assert.match(editorWindow, /drawingIdRef/);
+assert.match(editorWindow, /data-editor-id/);
+assert.match(editorWindow, /event\.detail > 1/);
+assert.match(editorWindow, /onLostPointerCapture/);
+assert.match(editorWindow, /displayScale/);
 assert.match(rust, /stroke_width\.clamp\(4, 48\)/);
 assert.match(rust, /shape_stroke_width_changes_rendered_pixels/);
 assert.match(rust, /blur_pixel_size_changes_rendered_pixels/);

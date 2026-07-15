@@ -36,6 +36,14 @@ const MIN_TEXT_HEIGHT = 32;
 
 type EditorStatus = "Loading" | "Ready" | "Applied" | "Missing" | "Empty" | "Failed";
 type EditorTool = "select" | ShotAnnotation["tool"];
+type EditInteraction = {
+  id: string;
+  mode: "move" | "resize" | "resize-start";
+  start: { x: number; y: number };
+  originalPoints: Array<{ x: number; y: number }>;
+};
+type PendingDraw = { start: { x: number; y: number } };
+type PanInteraction = { x: number; y: number; scrollLeft: number; scrollTop: number };
 
 const editorCopy = {
   en: {
@@ -256,13 +264,16 @@ function ShotEditor({
   const canvasRef = useRef<HTMLDivElement | null>(null);
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const annotationsRef = useRef(annotations);
+  const selectedAnnotationIdRef = useRef<string | null>(null);
+  const drawingIdRef = useRef<string | null>(null);
+  const pendingDrawRef = useRef<PendingDraw | null>(null);
+  const editInteractionRef = useRef<EditInteraction | null>(null);
+  const panInteractionRef = useRef<PanInteraction | null>(null);
   const textInputRef = useRef<HTMLTextAreaElement | null>(null);
   const [activeTool, setActiveTool] = useState<EditorTool>("select");
   const [draftColor, setDraftColor] = useState("#0ea5e9");
   const [strokeWidth, setStrokeWidth] = useState(4);
   const [fontSize, setFontSize] = useState(24);
-  const [drawingId, setDrawingId] = useState<string | null>(null);
-  const [pendingDraw, setPendingDraw] = useState<{ start: { x: number; y: number } } | null>(null);
   const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null);
   const [editingTextId, setEditingTextId] = useState<string | null>(null);
   const [annotationsDirty, setAnnotationsDirty] = useState(false);
@@ -271,13 +282,6 @@ function ShotEditor({
   const [manualZoom, setManualZoom] = useState(1);
   const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 });
   const [spacePressed, setSpacePressed] = useState(false);
-  const [panInteraction, setPanInteraction] = useState<{ x: number; y: number; scrollLeft: number; scrollTop: number } | null>(null);
-  const [editInteraction, setEditInteraction] = useState<{
-    id: string;
-    mode: "move" | "resize" | "resize-start";
-    start: { x: number; y: number };
-    originalPoints: Array<{ x: number; y: number }>;
-  } | null>(null);
 
   const imagePath = entry ? entry.originalPath : "";
   const imagePathDisplay = formatPathForDisplay(imagePath);
@@ -293,6 +297,23 @@ function ShotEditor({
     annotationsRef.current = annotations;
   }, [annotations]);
 
+  const setSelectedAnnotationIdSync = (id: string | null) => {
+    selectedAnnotationIdRef.current = id;
+    setSelectedAnnotationId(id);
+  };
+  const setDrawingIdSync = (id: string | null) => {
+    drawingIdRef.current = id;
+  };
+  const setPendingDrawSync = (value: PendingDraw | null) => {
+    pendingDrawRef.current = value;
+  };
+  const setEditInteractionSync = (value: EditInteraction | null) => {
+    editInteractionRef.current = value;
+  };
+  const setPanInteractionSync = (value: PanInteraction | null) => {
+    panInteractionRef.current = value;
+  };
+
   useEffect(() => {
     const viewport = viewportRef.current;
     if (!viewport) return;
@@ -304,16 +325,16 @@ function ShotEditor({
   }, [entry?.id]);
 
   useEffect(() => {
-    setDrawingId(null);
-    setPendingDraw(null);
-    setSelectedAnnotationId(null);
+    setDrawingIdSync(null);
+    setPendingDrawSync(null);
+    setSelectedAnnotationIdSync(null);
     setEditingTextId(null);
-    setEditInteraction(null);
+    setEditInteractionSync(null);
     setUndoStack([]);
     setAnnotationsDirty(false);
     setZoomMode("fit");
     setManualZoom(1);
-    setPanInteraction(null);
+    setPanInteractionSync(null);
   }, [entry?.id, entryLoadToken]);
 
   useEffect(() => {
@@ -345,7 +366,7 @@ function ShotEditor({
     onAnnotationsChange(next);
   };
 
-  const rememberUndo = (snapshot = annotations) => {
+  const rememberUndo = (snapshot = annotationsRef.current) => {
     setUndoStack((current) => [...current.slice(-31), cloneAnnotations(snapshot)]);
   };
 
@@ -356,13 +377,13 @@ function ShotEditor({
 
   const removeAnnotation = (id: string, recordUndo = true) => {
     if (recordUndo) rememberUndo();
-    changeAnnotations(annotations.filter((annotation) => annotation.id !== id));
-    if (selectedAnnotationId === id) setSelectedAnnotationId(null);
+    changeAnnotations(annotationsRef.current.filter((annotation) => annotation.id !== id));
+    if (selectedAnnotationIdRef.current === id) setSelectedAnnotationIdSync(null);
     if (editingTextId === id) setEditingTextId(null);
   };
 
   const finishTextEdit = (id: string) => {
-    const annotation = annotations.find((item) => item.id === id);
+    const annotation = annotationsRef.current.find((item) => item.id === id);
     if (annotation?.tool === "text" && !annotation.text?.trim()) {
       removeAnnotation(id, false);
       return;
@@ -375,7 +396,7 @@ function ShotEditor({
     if (spacePressed) {
       event.preventDefault();
       event.currentTarget.setPointerCapture(event.pointerId);
-      setPanInteraction({
+      setPanInteractionSync({
         x: event.clientX,
         y: event.clientY,
         scrollLeft: viewportRef.current?.scrollLeft || 0,
@@ -386,13 +407,16 @@ function ShotEditor({
     const point = pointFromEvent(event);
     if (!point) return;
 
+    const selectedId = selectedAnnotationIdRef.current;
     const handleTarget = (event.target as HTMLElement).closest("[data-editor-handle]");
-    if (handleTarget && selectedAnnotation) {
+    const handleOwnerId = handleTarget?.getAttribute("data-editor-id");
+    const selectedForHandle = selectedId ? annotationsRef.current.find((annotation) => annotation.id === selectedId) : null;
+    if (handleTarget && selectedForHandle && handleOwnerId === selectedForHandle.id) {
       event.currentTarget.setPointerCapture(event.pointerId);
       rememberUndo();
       setEditingTextId(null);
-      setEditInteraction({
-        id: selectedAnnotation.id,
+      setEditInteractionSync({
+        id: selectedForHandle.id,
         mode:
           handleTarget.getAttribute("data-editor-handle") === "move"
             ? "move"
@@ -400,38 +424,38 @@ function ShotEditor({
               ? "resize-start"
               : "resize",
         start: point,
-        originalPoints: selectedAnnotation.points,
+        originalPoints: selectedForHandle.points,
       });
       return;
     }
 
     const hitId = (event.target as HTMLElement).closest("[data-editor-hit]")?.getAttribute("data-editor-hit");
-    const hit = (hitId ? annotations.find((annotation) => annotation.id === hitId) : null) || findAnnotationAtPoint(annotations, point);
+    const hit = (hitId ? annotationsRef.current.find((annotation) => annotation.id === hitId) : null) || findAnnotationAtPoint(annotationsRef.current, point, zoomScale);
     if (hit) {
-      setSelectedAnnotationId(hit.id);
+      setSelectedAnnotationIdSync(hit.id);
       setDraftColor(hit.color);
-      setStrokeWidth(hit.strokeWidth);
+      setStrokeWidth(hit.tool === "blur" ? hit.blurPixelSize ?? hit.strokeWidth : hit.strokeWidth);
       if (hit.fontSize) setFontSize(hit.fontSize);
+      if (event.detail > 1) {
+        setEditingTextId(hit.tool === "text" ? hit.id : null);
+        return;
+      }
       if (hit.tool === "text") {
-        if (event.detail > 1) {
-          setEditingTextId(hit.id);
-          return;
-        }
         event.currentTarget.setPointerCapture(event.pointerId);
         setEditingTextId(null);
         rememberUndo();
-        setEditInteraction({ id: hit.id, mode: "move", start: point, originalPoints: hit.points });
+        setEditInteractionSync({ id: hit.id, mode: "move", start: point, originalPoints: hit.points });
         return;
       }
       event.currentTarget.setPointerCapture(event.pointerId);
       setEditingTextId(null);
       rememberUndo();
-      setEditInteraction({ id: hit.id, mode: "move", start: point, originalPoints: hit.points });
+      setEditInteractionSync({ id: hit.id, mode: "move", start: point, originalPoints: hit.points });
       return;
     }
 
     setEditingTextId(null);
-    setSelectedAnnotationId(null);
+    setSelectedAnnotationIdSync(null);
     if (activeTool === "select") return;
 
     if (activeTool === "text") {
@@ -446,52 +470,56 @@ function ShotEditor({
         fontSize,
       };
       rememberUndo();
-      changeAnnotations([...annotations, annotation]);
-      setSelectedAnnotationId(id);
+      changeAnnotations([...annotationsRef.current, annotation]);
+      setSelectedAnnotationIdSync(id);
       setEditingTextId(id);
       return;
     }
 
     event.currentTarget.setPointerCapture(event.pointerId);
-    setPendingDraw({ start: point });
+    setPendingDrawSync({ start: point });
   };
 
   const continueDrawing = (event: PointerEvent<HTMLDivElement>) => {
     if (!entry) return;
-    if (panInteraction) {
+    const activePan = panInteractionRef.current;
+    const activeEdit = editInteractionRef.current;
+    const activePending = pendingDrawRef.current;
+    const activeDrawingId = drawingIdRef.current;
+    if (activePan) {
       const viewport = viewportRef.current;
       if (viewport) {
-        viewport.scrollLeft = panInteraction.scrollLeft - (event.clientX - panInteraction.x);
-        viewport.scrollTop = panInteraction.scrollTop - (event.clientY - panInteraction.y);
+        viewport.scrollLeft = activePan.scrollLeft - (event.clientX - activePan.x);
+        viewport.scrollTop = activePan.scrollTop - (event.clientY - activePan.y);
       }
       return;
     }
-    if (editInteraction) {
+    if (activeEdit) {
       const point = pointFromEvent(event);
       if (!point) return;
-      const dx = point.x - editInteraction.start.x;
-      const dy = point.y - editInteraction.start.y;
+      const dx = point.x - activeEdit.start.x;
+      const dy = point.y - activeEdit.start.y;
       const currentAnnotations = annotationsRef.current;
       changeAnnotations(
         currentAnnotations.map((annotation) => {
-          if (annotation.id !== editInteraction.id) return annotation;
-          if (editInteraction.mode === "resize-start") {
-            const second = editInteraction.originalPoints[1] || editInteraction.originalPoints[0] || point;
+          if (annotation.id !== activeEdit.id) return annotation;
+          if (activeEdit.mode === "resize-start") {
+            const second = activeEdit.originalPoints[1] || activeEdit.originalPoints[0] || point;
             return { ...annotation, points: [clampPoint(point, entry), second] };
           }
-          if (editInteraction.mode === "resize") {
-            const first = editInteraction.originalPoints[0] || point;
+          if (activeEdit.mode === "resize") {
+            const first = activeEdit.originalPoints[0] || point;
             const next = { ...annotation, points: [first, clampPoint(point, entry)] };
             return annotation.tool === "text" ? resizeTextBounds(annotation, point, entry) : next;
           }
-          return translateAnnotation(annotation, editInteraction.originalPoints, dx, dy, entry);
+          return translateAnnotation(annotation, activeEdit.originalPoints, dx, dy, entry);
         }),
       );
       return;
     }
-    if (pendingDraw) {
+    if (activePending) {
       const point = pointFromEvent(event);
-      if (!point || distanceBetween(pendingDraw.start, point) < MIN_DRAW_DISTANCE) return;
+      if (!point || distanceBetween(activePending.start, point) < MIN_DRAW_DISTANCE) return;
       if (activeTool === "select" || activeTool === "text") return;
       const id = crypto.randomUUID();
       const annotation: ShotAnnotation = {
@@ -500,22 +528,22 @@ function ShotEditor({
         color: activeTool === "blur" ? "#64748b" : draftColor,
         strokeWidth: activeTool === "blur" ? 1 : strokeWidth,
         blurPixelSize: activeTool === "blur" ? Math.max(4, strokeWidth) : undefined,
-        points: activeTool === "pen" ? [pendingDraw.start, point] : [pendingDraw.start, point],
+        points: [activePending.start, point],
       };
       rememberUndo();
-      changeAnnotations([...annotations, annotation]);
-      setPendingDraw(null);
-      setDrawingId(id);
-      setSelectedAnnotationId(id);
+      changeAnnotations([...annotationsRef.current, annotation]);
+      setPendingDrawSync(null);
+      setDrawingIdSync(id);
+      setSelectedAnnotationIdSync(id);
       return;
     }
-    if (!drawingId) return;
+    if (!activeDrawingId) return;
     const point = pointFromEvent(event);
     if (!point) return;
     const currentAnnotations = annotationsRef.current;
     changeAnnotations(
       currentAnnotations.map((annotation) => {
-        if (annotation.id !== drawingId) return annotation;
+        if (annotation.id !== activeDrawingId) return annotation;
         if (annotation.tool === "pen") return { ...annotation, points: [...annotation.points, point] };
         return { ...annotation, points: [annotation.points[0] || point, point] };
       }),
@@ -523,14 +551,14 @@ function ShotEditor({
   };
 
   const finishDrawing = (event: PointerEvent<HTMLDivElement>) => {
-    if (!drawingId && !editInteraction && !pendingDraw && !panInteraction) return;
+    if (!drawingIdRef.current && !editInteractionRef.current && !pendingDrawRef.current && !panInteractionRef.current) return;
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
-    setDrawingId(null);
-    setPendingDraw(null);
-    setEditInteraction(null);
-    setPanInteraction(null);
+    setDrawingIdSync(null);
+    setPendingDrawSync(null);
+    setEditInteractionSync(null);
+    setPanInteractionSync(null);
   };
 
   const setActiveToolAndSync = (tool: EditorTool) => {
@@ -547,13 +575,13 @@ function ShotEditor({
 
   const updateColor = (color: string) => {
     setDraftColor(color);
-    if (selectedAnnotationId) updateAnnotationWithUndo(selectedAnnotationId, (annotation) => ({ ...annotation, color: annotation.tool === "blur" ? annotation.color : color }));
+    if (selectedAnnotationIdRef.current) updateAnnotationWithUndo(selectedAnnotationIdRef.current, (annotation) => ({ ...annotation, color: annotation.tool === "blur" ? annotation.color : color }));
   };
 
   const updateStrokeWidth = (width: number) => {
     setStrokeWidth(width);
-    if (selectedAnnotationId) {
-      updateAnnotationWithUndo(selectedAnnotationId, (annotation) => annotation.tool === "blur"
+    if (selectedAnnotationIdRef.current) {
+      updateAnnotationWithUndo(selectedAnnotationIdRef.current, (annotation) => annotation.tool === "blur"
         ? { ...annotation, blurPixelSize: width }
         : annotation.tool === "text" ? annotation : { ...annotation, strokeWidth: width });
     }
@@ -561,11 +589,11 @@ function ShotEditor({
 
   const updateFontSize = (size: number) => {
     setFontSize(size);
-    if (selectedAnnotationId) updateAnnotationWithUndo(selectedAnnotationId, (annotation) => (annotation.tool === "text" ? resizeTextAnnotation({ ...annotation, fontSize: size }, null, entry) : annotation));
+    if (selectedAnnotationIdRef.current) updateAnnotationWithUndo(selectedAnnotationIdRef.current, (annotation) => (annotation.tool === "text" ? resizeTextAnnotation({ ...annotation, fontSize: size }, null, entry) : annotation));
   };
 
   const updateTextBox = (id: string, text: string, element?: HTMLTextAreaElement | null) => {
-    const annotation = annotations.find((item) => item.id === id);
+    const annotation = annotationsRef.current.find((item) => item.id === id);
     if (!entry || !annotation) {
       updateAnnotation(id, (item) => ({ ...item, text }));
       return;
@@ -579,20 +607,20 @@ function ShotEditor({
     const nextStack = undoStack.slice(0, -1);
     setUndoStack(nextStack);
     changeAnnotations(cloneAnnotations(previous));
-    setSelectedAnnotationId(previous.at(-1)?.id ?? null);
+    setSelectedAnnotationIdSync(previous.at(-1)?.id ?? null);
     setEditingTextId(null);
   };
 
   const clear = () => {
     rememberUndo();
     changeAnnotations([]);
-    setSelectedAnnotationId(null);
+    setSelectedAnnotationIdSync(null);
     setEditingTextId(null);
   };
 
   const applyCurrent = async () => {
     if (!canApply) return;
-    await onApply(annotations);
+    await onApply(annotationsRef.current);
     setAnnotationsDirty(false);
   };
 
@@ -624,16 +652,17 @@ function ShotEditor({
   };
 
   const handleViewportPointerMove = (event: PointerEvent<HTMLDivElement>) => {
-    if (!panInteraction) return;
+    const activePan = panInteractionRef.current;
+    if (!activePan) return;
     const viewport = viewportRef.current;
     if (!viewport) return;
-    viewport.scrollLeft = panInteraction.scrollLeft - (event.clientX - panInteraction.x);
-    viewport.scrollTop = panInteraction.scrollTop - (event.clientY - panInteraction.y);
+    viewport.scrollLeft = activePan.scrollLeft - (event.clientX - activePan.x);
+    viewport.scrollTop = activePan.scrollTop - (event.clientY - activePan.y);
   };
 
   const handleViewportPointerUp = (event: PointerEvent<HTMLDivElement>) => {
     if (viewportRef.current?.hasPointerCapture(event.pointerId)) viewportRef.current.releasePointerCapture(event.pointerId);
-    setPanInteraction(null);
+    setPanInteractionSync(null);
   };
 
   useEffect(() => {
@@ -757,7 +786,7 @@ function ShotEditor({
           onWheel={handleWheel}
           onPointerMove={handleViewportPointerMove}
           onPointerUp={handleViewportPointerUp}
-          onPointerCancel={() => setPanInteraction(null)}
+          onPointerCancel={() => setPanInteractionSync(null)}
         >
           {entry && fileMissing ? (
             <EditorState icon={Image} title={text.localFileMissing} description={text.localFileMissingDescription} />
@@ -765,16 +794,22 @@ function ShotEditor({
             <div
               ref={canvasRef}
               data-editor-canvas
-              className={cn("relative shrink-0 overflow-hidden rounded-md border bg-background shadow-xl", spacePressed ? "cursor-grabbing" : activeTool === "select" ? "cursor-default" : "cursor-crosshair")}
+              className={cn("relative shrink-0 select-none overflow-hidden rounded-md border bg-background shadow-xl", spacePressed ? "cursor-grabbing" : activeTool === "select" ? "cursor-default" : "cursor-crosshair")}
               style={{ width: entry.width * zoomScale, height: entry.height * zoomScale }}
               onPointerDown={startDrawing}
               onPointerMove={continueDrawing}
               onPointerUp={finishDrawing}
               onPointerCancel={() => {
-                setDrawingId(null);
-                setPendingDraw(null);
-                setEditInteraction(null);
-                setPanInteraction(null);
+                setDrawingIdSync(null);
+                setPendingDrawSync(null);
+                setEditInteractionSync(null);
+                setPanInteractionSync(null);
+              }}
+              onLostPointerCapture={() => {
+                setDrawingIdSync(null);
+                setPendingDrawSync(null);
+                setEditInteractionSync(null);
+                setPanInteractionSync(null);
               }}
             >
               <img src={imageUrl} alt="" draggable={false} className="absolute inset-0 h-full w-full select-none object-fill" />
@@ -783,6 +818,7 @@ function ShotEditor({
                   key={annotation.id}
                   entry={entry}
                   annotation={annotation}
+                  displayScale={zoomScale}
                   fallbackOffset={index}
                   selected={selectedAnnotationId === annotation.id}
                   editing={editingTextId === annotation.id}
@@ -961,6 +997,7 @@ function ContextToolbar({
 function AnnotationPreview({
   entry,
   annotation,
+  displayScale,
   fallbackOffset,
   selected,
   editing,
@@ -972,6 +1009,7 @@ function AnnotationPreview({
 }: {
   entry: ShotHistoryEntry | null;
   annotation: ShotAnnotation;
+  displayScale: number;
   fallbackOffset: number;
   selected: boolean;
   editing: boolean;
@@ -989,7 +1027,7 @@ function AnnotationPreview({
   if (isLineLike) {
     const points = annotation.tool === "pen" ? annotation.points : [first, second];
     const path = points.map((point) => `${point.x},${point.y}`).join(" ");
-    const hitStroke = Math.max(18, annotation.strokeWidth + 14);
+    const hitStroke = Math.max(18, annotation.strokeWidth + 14, 12 / Math.max(displayScale, 0.05));
     return (
       <>
         <svg className="pointer-events-none absolute inset-0 h-full w-full" viewBox={`0 0 ${width} ${height}`} aria-hidden="true">
@@ -1001,6 +1039,7 @@ function AnnotationPreview({
           {annotation.tool === "pen" ? (
             <polyline
               data-editor-hit={annotation.id}
+              data-editor-id={annotation.id}
               className="pointer-events-auto cursor-move"
               points={path}
               fill="none"
@@ -1012,6 +1051,7 @@ function AnnotationPreview({
           ) : (
             <line
               data-editor-hit={annotation.id}
+              data-editor-id={annotation.id}
               className="pointer-events-auto cursor-move"
               x1={first.x}
               y1={first.y}
@@ -1051,7 +1091,9 @@ function AnnotationPreview({
                 key={`${annotation.id}-${index}`}
                 type="button"
                 data-editor-handle={index === 0 ? "resize-start" : "resize"}
+                data-editor-id={annotation.id}
                 aria-label={index === 0 ? "Move start point" : "Move end point"}
+                onPointerDown={(event) => event.preventDefault()}
                 className="pointer-events-auto absolute h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border border-background bg-primary shadow"
                 style={{ left: `${(point.x / width) * 100}%`, top: `${(point.y / height) * 100}%` }}
               />
@@ -1109,6 +1151,7 @@ function AnnotationPreview({
     <>
       <div
         data-editor-hit={annotation.id}
+        data-editor-id={annotation.id}
         onDoubleClick={isText ? onTextEdit : undefined}
         className={cn("pointer-events-auto absolute cursor-move", isEllipse ? "rounded-full" : "rounded")}
         style={{ left, top, width: boxWidth, height: boxHeight }}
@@ -1131,7 +1174,7 @@ function AnnotationPreview({
           minHeight: isText ? 32 : undefined,
           borderColor: annotation.color,
           borderStyle: "solid",
-           borderWidth: isText ? (selected ? 1 : 0) : isBlur ? 0 : Math.max(1, annotation.strokeWidth),
+          borderWidth: isText ? (selected ? 1 : 0) : isBlur ? 0 : Math.max(1, annotation.strokeWidth),
           color: annotation.color,
           backgroundColor: isBlur ? "rgb(100 116 139 / 0.18)" : undefined,
           backgroundImage: isBlur
@@ -1149,15 +1192,19 @@ function AnnotationPreview({
             <button
               type="button"
               data-editor-handle="move"
+              data-editor-id={annotation.id}
               aria-label="Move selected annotation"
               title="Move"
+              onPointerDown={(event) => event.preventDefault()}
               className="pointer-events-auto absolute -left-2 -top-2 h-4 w-4 cursor-move rounded-full border border-background bg-primary shadow"
             />
             <button
               type="button"
               data-editor-handle="resize"
+              data-editor-id={annotation.id}
               aria-label="Resize selected annotation"
               title="Resize"
+              onPointerDown={(event) => event.preventDefault()}
               className="pointer-events-auto absolute -bottom-2 -right-2 h-4 w-4 cursor-nwse-resize rounded-full border border-background bg-primary shadow"
             />
           </>
@@ -1313,22 +1360,23 @@ function distanceToSegment(point: { x: number; y: number }, start: { x: number; 
   return Math.hypot(point.x - projection.x, point.y - projection.y);
 }
 
-function findAnnotationAtPoint(annotations: ShotAnnotation[], point: { x: number; y: number }) {
+function findAnnotationAtPoint(annotations: ShotAnnotation[], point: { x: number; y: number }, displayScale = 1) {
   for (const annotation of [...annotations].reverse()) {
     const first = annotation.points[0];
     if (!first) continue;
     if (annotation.tool === "pen" || annotation.tool === "arrow" || annotation.tool === "line") {
       const points = annotation.tool === "pen" ? annotation.points : [annotation.points[0], annotation.points[1]].filter(Boolean);
+      const lineTolerance = Math.max(18, annotation.strokeWidth + 14, 10 / Math.max(displayScale, 0.05));
       for (const candidate of points) {
-        if (Math.abs(candidate.x - point.x) <= 18 && Math.abs(candidate.y - point.y) <= 18) return annotation;
+        if (Math.abs(candidate.x - point.x) <= lineTolerance && Math.abs(candidate.y - point.y) <= lineTolerance) return annotation;
       }
       for (let index = 0; index < points.length - 1; index += 1) {
-        if (distanceToSegment(point, points[index], points[index + 1]) <= Math.max(18, annotation.strokeWidth + 14)) return annotation;
+        if (distanceToSegment(point, points[index], points[index + 1]) <= lineTolerance) return annotation;
       }
       continue;
     }
     const second = annotation.points[1] || { x: first.x + 120, y: first.y + 60 };
-    const tolerance = Math.max(14, annotation.strokeWidth + 10);
+    const tolerance = Math.max(14, annotation.strokeWidth + 10, 10 / Math.max(displayScale, 0.05));
     const left = Math.min(first.x, second.x) - tolerance;
     const right = Math.max(first.x, second.x) + tolerance;
     const top = Math.min(first.y, second.y) - tolerance;
