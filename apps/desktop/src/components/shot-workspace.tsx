@@ -712,6 +712,7 @@ function cleanDisplayName(value: string, text: WorkspaceText = workspaceCopy.en)
 }
 
 function modeLabel(mode: ShotHistoryEntry["mode"], text: WorkspaceText) {
+  if (mode === "window") return text.selectedWindow;
   return mode === "region" ? text.region : text.display;
 }
 

@@ -29,7 +29,6 @@ struct ShotStore {
     entries: Arc<Mutex<Vec<ShotHistoryEntry>>>,
 }
 
-static LAST_FOCUS_TARGET: OnceLock<Mutex<Option<CaptureRegion>>> = OnceLock::new();
 static CAPTURE_HIDDEN_WINDOWS: OnceLock<Mutex<Vec<String>>> = OnceLock::new();
 
 #[derive(Clone, Serialize)]
@@ -55,12 +54,21 @@ struct CaptureRegion {
     height: u32,
 }
 
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WindowTarget {
+    window_id: String,
+    title: String,
+    region: CaptureRegion,
+}
+
 #[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct CaptureRequest {
     mode: String,
     display_id: Option<String>,
     region: Option<CaptureRegion>,
+    window_id: Option<String>,
     save_folder: Option<String>,
     clipboard_mode: Option<String>,
     post_capture_action: Option<String>,
@@ -311,13 +319,6 @@ fn path_is_inside(path: &Path, root: &Path) -> bool {
     path.starts_with(root)
 }
 
-fn capture_center(region: &CaptureRegion) -> (i32, i32) {
-    (
-        region.x + (region.width as i32 / 2),
-        region.y + (region.height as i32 / 2),
-    )
-}
-
 fn virtual_display_bounds(displays: &[DisplayInfo]) -> Option<(i32, i32, u32, u32)> {
     if displays.is_empty() {
         return None;
@@ -340,59 +341,86 @@ fn virtual_display_bounds(displays: &[DisplayInfo]) -> Option<(i32, i32, u32, u3
     ))
 }
 
-fn native_screen_for_region(region: &CaptureRegion) -> Result<Screen, String> {
-    let (center_x, center_y) = capture_center(region);
-    match Screen::from_point(center_x, center_y) {
-        Ok(screen) => Ok(screen),
-        Err(_) => Screen::all()
-            .map_err(|error| error.to_string())?
-            .into_iter()
-            .next()
-            .ok_or_else(|| "No native screen is available for capture.".to_string()),
-    }
-}
-
-fn clamp_region_to_screen(region: &CaptureRegion, screen: &Screen) -> CaptureRegion {
-    let info = screen.display_info;
-    let screen_right = info.x + info.width as i32;
-    let screen_bottom = info.y + info.height as i32;
-    let x = region.x.clamp(info.x, screen_right.saturating_sub(1));
-    let y = region.y.clamp(info.y, screen_bottom.saturating_sub(1));
+fn capture_virtual_region(region: &CaptureRegion) -> Result<RgbaImage, String> {
+    let screens = Screen::all().map_err(|error| error.to_string())?;
+    let mut output = RgbaImage::from_pixel(
+        region.width.max(1),
+        region.height.max(1),
+        Rgba([0, 0, 0, 255]),
+    );
     let requested_right = region.x.saturating_add(region.width as i32);
     let requested_bottom = region.y.saturating_add(region.height as i32);
-    let right = requested_right.clamp(x + 1, screen_right);
-    let bottom = requested_bottom.clamp(y + 1, screen_bottom);
-    CaptureRegion {
-        display_id: region.display_id.clone(),
-        x,
-        y,
-        width: (right - x).max(1) as u32,
-        height: (bottom - y).max(1) as u32,
+    let mut captured = false;
+
+    for screen in screens {
+        let info = screen.display_info;
+        let screen_right = info.x.saturating_add(info.width as i32);
+        let screen_bottom = info.y.saturating_add(info.height as i32);
+        let left = region.x.max(info.x);
+        let top = region.y.max(info.y);
+        let right = requested_right.min(screen_right);
+        let bottom = requested_bottom.min(screen_bottom);
+        if right <= left || bottom <= top {
+            continue;
+        }
+        let part = screen
+            .capture_area(
+                left - info.x,
+                top - info.y,
+                (right - left) as u32,
+                (bottom - top) as u32,
+            )
+            .map_err(|error| error.to_string())?;
+        for y in 0..(bottom - top) as u32 {
+            for x in 0..(right - left) as u32 {
+                output.put_pixel(
+                    (left - region.x) as u32 + x,
+                    (top - region.y) as u32 + y,
+                    *part.get_pixel(x, y),
+                );
+            }
+        }
+        captured = true;
     }
-}
 
-fn focus_target_store() -> &'static Mutex<Option<CaptureRegion>> {
-    LAST_FOCUS_TARGET.get_or_init(|| Mutex::new(None))
-}
-
-fn set_focus_target(region: Option<CaptureRegion>) {
-    if let Ok(mut target) = focus_target_store().lock() {
-        *target = region;
+    if captured {
+        Ok(output)
+    } else {
+        Err("The requested capture region is outside the available displays.".to_string())
     }
-}
-
-fn get_focus_target() -> Option<CaptureRegion> {
-    focus_target_store()
-        .lock()
-        .ok()
-        .and_then(|target| target.clone())
 }
 
 fn capture_hidden_windows_store() -> &'static Mutex<Vec<String>> {
     CAPTURE_HIDDEN_WINDOWS.get_or_init(|| Mutex::new(Vec::new()))
 }
 
+fn configure_capture_exclusion(app: &AppHandle) {
+    for label in ["main", "editor", "overlay", "capture"] {
+        if let Some(window) = app.get_webview_window(label) {
+            #[cfg(target_os = "windows")]
+            if let Ok(hwnd) = window.hwnd() {
+                use windows_sys::Win32::UI::WindowsAndMessaging::{
+                    SetWindowDisplayAffinity, WDA_EXCLUDEFROMCAPTURE,
+                };
+                unsafe {
+                    let _ = SetWindowDisplayAffinity(hwnd.0 as _, WDA_EXCLUDEFROMCAPTURE);
+                }
+            }
+        }
+    }
+}
+
+fn flush_capture_compositor() {
+    #[cfg(target_os = "windows")]
+    unsafe {
+        use windows_sys::Win32::Graphics::Dwm::DwmFlush;
+        let _ = DwmFlush();
+    }
+    thread::sleep(Duration::from_millis(24));
+}
+
 fn hide_internal_windows_for_capture(app: &AppHandle) {
+    configure_capture_exclusion(app);
     let Ok(mut hidden_labels) = capture_hidden_windows_store().lock() else {
         return;
     };
@@ -408,6 +436,7 @@ fn hide_internal_windows_for_capture(app: &AppHandle) {
             hidden_labels.push(label.to_string());
         }
     }
+    flush_capture_compositor();
 }
 
 fn restore_internal_windows_after_capture(app: &AppHandle) {
@@ -420,28 +449,28 @@ fn restore_internal_windows_after_capture(app: &AppHandle) {
             let _ = window.show();
         }
     }
+    flush_capture_compositor();
 }
 
 #[cfg(target_os = "windows")]
-fn window_region_at_point_native(x: i32, y: i32) -> Option<CaptureRegion> {
+fn window_target_at_cursor_native() -> Option<WindowTarget> {
     use windows_sys::Win32::{
-        Foundation::{HWND, POINT, RECT},
+        Foundation::{HWND, LPARAM, POINT, RECT},
+        Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED, DWMWA_EXTENDED_FRAME_BOUNDS},
         UI::WindowsAndMessaging::{
-            GetAncestor, GetWindow, GetWindowRect, GetWindowTextLengthW, GetWindowTextW,
-            GetWindowThreadProcessId, IsWindowVisible, WindowFromPoint, GA_ROOT, GW_HWNDNEXT,
+            EnumWindows, GetCursorPos, GetWindow, GetWindowLongW, GetWindowTextLengthW,
+            GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindowVisible, GWL_EXSTYLE,
+            GW_OWNER, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
         },
     };
 
-    unsafe fn root_window(hwnd: HWND) -> HWND {
-        let root = GetAncestor(hwnd, GA_ROOT);
-        if root.is_null() {
-            hwnd
-        } else {
-            root
-        }
+    struct SearchState {
+        point: POINT,
+        process_id: u32,
+        target: Option<WindowTarget>,
     }
 
-    unsafe fn window_title(hwnd: HWND) -> String {
+    unsafe fn title(hwnd: HWND) -> String {
         let length = GetWindowTextLengthW(hwnd);
         if length <= 0 {
             return String::new();
@@ -454,64 +483,97 @@ fn window_region_at_point_native(x: i32, y: i32) -> Option<CaptureRegion> {
         String::from_utf16_lossy(&buffer[..read as usize])
     }
 
-    fn is_atrisshot_overlay_title(title: &str) -> bool {
-        matches!(title, "AtrisShot Capture" | "AtrisShot Result")
+    unsafe fn frame_bounds(hwnd: HWND) -> Option<RECT> {
+        let mut rect = RECT {
+            left: 0,
+            top: 0,
+            right: 0,
+            bottom: 0,
+        };
+        if DwmGetWindowAttribute(
+            hwnd,
+            DWMWA_EXTENDED_FRAME_BOUNDS as u32,
+            (&mut rect as *mut RECT).cast(),
+            std::mem::size_of::<RECT>() as u32,
+        ) == 0
+        {
+            Some(rect)
+        } else {
+            None
+        }
     }
 
-    fn point_is_inside_rect(x: i32, y: i32, rect: &RECT) -> bool {
-        x >= rect.left && x < rect.right && y >= rect.top && y < rect.bottom
-    }
-
-    unsafe fn is_current_process_window(hwnd: HWND) -> bool {
+    unsafe extern "system" fn visit(hwnd: HWND, parameter: LPARAM) -> i32 {
+        let state = &mut *(parameter as *mut SearchState);
+        if hwnd.is_null() || IsWindowVisible(hwnd) == 0 || IsIconic(hwnd) != 0 {
+            return 1;
+        }
         let mut process_id = 0_u32;
         GetWindowThreadProcessId(hwnd, &mut process_id);
-        process_id == std::process::id()
+        if process_id == 0 || process_id == state.process_id {
+            return 1;
+        }
+        let style = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
+        if style & WS_EX_TOOLWINDOW != 0 && style & WS_EX_APPWINDOW == 0 {
+            return 1;
+        }
+        let mut cloaked = 0_u32;
+        if DwmGetWindowAttribute(
+            hwnd,
+            DWMWA_CLOAKED as u32,
+            (&mut cloaked as *mut u32).cast(),
+            std::mem::size_of::<u32>() as u32,
+        ) == 0
+            && cloaked != 0
+        {
+            return 1;
+        }
+        let Some(rect) = frame_bounds(hwnd) else {
+            return 1;
+        };
+        if state.point.x < rect.left
+            || state.point.x >= rect.right
+            || state.point.y < rect.top
+            || state.point.y >= rect.bottom
+        {
+            return 1;
+        }
+        let width = rect.right.saturating_sub(rect.left);
+        let height = rect.bottom.saturating_sub(rect.top);
+        if width < 32 || height < 32 || !GetWindow(hwnd, GW_OWNER).is_null() {
+            return 1;
+        }
+        state.target = Some(WindowTarget {
+            window_id: (hwnd as usize).to_string(),
+            title: title(hwnd),
+            region: CaptureRegion {
+                display_id: "clicked-window".to_string(),
+                x: rect.left,
+                y: rect.top,
+                width: width as u32,
+                height: height as u32,
+            },
+        });
+        0
     }
 
     unsafe {
-        let hwnd = WindowFromPoint(POINT { x, y });
-        if hwnd.is_null() {
+        let mut point = POINT { x: 0, y: 0 };
+        if GetCursorPos(&mut point) == 0 {
             return None;
         }
-        let mut target = root_window(hwnd);
-        for _ in 0..24 {
-            if target.is_null() {
-                return None;
-            }
-            if IsWindowVisible(target) != 0 {
-                let title = window_title(target);
-                let mut rect = RECT {
-                    left: 0,
-                    top: 0,
-                    right: 0,
-                    bottom: 0,
-                };
-                if GetWindowRect(target, &mut rect) != 0
-                    && point_is_inside_rect(x, y, &rect)
-                    && !is_atrisshot_overlay_title(&title)
-                    && !is_current_process_window(target)
-                {
-                    let width = rect.right.saturating_sub(rect.left);
-                    let height = rect.bottom.saturating_sub(rect.top);
-                    if width >= 32 && height >= 32 {
-                        return Some(CaptureRegion {
-                            display_id: "clicked-window".to_string(),
-                            x: rect.left,
-                            y: rect.top,
-                            width: width as u32,
-                            height: height as u32,
-                        });
-                    }
-                }
-            }
-            target = GetWindow(target, GW_HWNDNEXT);
-        }
-        None
+        let mut state = SearchState {
+            point,
+            process_id: std::process::id(),
+            target: None,
+        };
+        let _ = EnumWindows(Some(visit), (&mut state as *mut SearchState) as isize);
+        state.target
     }
 }
 
 #[cfg(not(target_os = "windows"))]
-fn window_region_at_point_native(_x: i32, _y: i32) -> Option<CaptureRegion> {
+fn window_target_at_cursor_native() -> Option<WindowTarget> {
     None
 }
 
@@ -1039,20 +1101,64 @@ fn capture_shot(
 ) -> Result<CaptureResult, String> {
     access.require_access()?;
     let all_displays = displays(&app);
-    let display = request
+    let requested_display = request
         .display_id
         .as_ref()
         .and_then(|id| all_displays.iter().find(|candidate| &candidate.id == id))
-        .or_else(|| all_displays.first())
-        .cloned()
+        .cloned();
+    let mut window_title = None;
+    let region = if request.mode == "window" {
+        let target = window_target_at_cursor_native()
+            .ok_or_else(|| "No visible application window is under the cursor.".to_string())?;
+        if request
+            .window_id
+            .as_deref()
+            .is_some_and(|window_id| window_id != target.window_id)
+        {
+            return Err("The selected application window changed before capture.".to_string());
+        }
+        window_title = Some(target.title);
+        target.region
+    } else {
+        request.region.unwrap_or_else(|| {
+            let display = requested_display
+                .clone()
+                .or_else(|| all_displays.first().cloned())
+                .unwrap_or(DisplayInfo {
+                    id: "display-1".to_string(),
+                    name: "Display 1".to_string(),
+                    x: 0,
+                    y: 0,
+                    width: 1,
+                    height: 1,
+                    scale_factor: 1.0,
+                    primary: true,
+                });
+            CaptureRegion {
+                display_id: display.id,
+                x: display.x,
+                y: display.y,
+                width: display.width,
+                height: display.height,
+            }
+        })
+    };
+    let display = requested_display
+        .or_else(|| {
+            let center_x = region.x + region.width as i32 / 2;
+            let center_y = region.y + region.height as i32 / 2;
+            all_displays
+                .iter()
+                .find(|candidate| {
+                    center_x >= candidate.x
+                        && center_x < candidate.x + candidate.width as i32
+                        && center_y >= candidate.y
+                        && center_y < candidate.y + candidate.height as i32
+                })
+                .cloned()
+        })
+        .or_else(|| all_displays.first().cloned())
         .ok_or("No display is available for capture.")?;
-    let region = request.region.unwrap_or(CaptureRegion {
-        display_id: display.id.clone(),
-        x: display.x,
-        y: display.y,
-        width: display.width,
-        height: display.height,
-    });
     let id = now_id();
     let root = capture_root(&app, request.save_folder.as_deref())?;
     fs::create_dir_all(&root).map_err(|error| error.to_string())?;
@@ -1067,35 +1173,19 @@ fn capture_shot(
     {
         return Err("Shot path must stay inside the AtrisShot data directory.".to_string());
     }
-    let screen = native_screen_for_region(&region)?;
-    let mut captured_region = region.clone();
+    let captured_region = region.clone();
 
     let _include_cursor = request.include_cursor.unwrap_or(false);
     hide_capture_overlay_window(&app);
+    flush_capture_compositor();
     thread::sleep(Duration::from_millis(
-        140 + request.capture_delay_ms.unwrap_or(0).min(10_000),
+        request.capture_delay_ms.unwrap_or(0).min(10_000),
     ));
 
-    let image_result = if request.mode == "region" {
-        captured_region = clamp_region_to_screen(&region, &screen);
-        let local_x = captured_region
-            .x
-            .saturating_sub(screen.display_info.x)
-            .max(0);
-        let local_y = captured_region
-            .y
-            .saturating_sub(screen.display_info.y)
-            .max(0);
-        screen
-            .capture_area(
-                local_x,
-                local_y,
-                captured_region.width,
-                captured_region.height,
-            )
-            .map_err(|error| error.to_string())
+    let image_result = if request.mode == "display" {
+        capture_virtual_region(&captured_region)
     } else {
-        screen.capture().map_err(|error| error.to_string())
+        capture_virtual_region(&captured_region)
     };
     restore_internal_windows_after_capture(&app);
     let image = image_result?;
@@ -1119,7 +1209,7 @@ fn capture_shot(
         thumbnail_path: thumbnail_path.map(|path| display_path(&path)),
         width: image.width(),
         height: image.height(),
-        display_name: display.name,
+        display_name: window_title.unwrap_or(display.name),
         region: captured_region,
         annotations_count: 0,
         edit_revision: 0,
@@ -1262,13 +1352,8 @@ fn path_exists(path: String) -> bool {
 }
 
 #[tauri::command]
-fn focused_window_region() -> Option<CaptureRegion> {
-    get_focus_target()
-}
-
-#[tauri::command]
-fn window_region_at_point(x: i32, y: i32) -> Option<CaptureRegion> {
-    window_region_at_point_native(x, y)
+fn window_target_at_cursor() -> Option<WindowTarget> {
+    window_target_at_cursor_native()
 }
 
 #[tauri::command]
@@ -1393,6 +1478,7 @@ fn overlay_position(
 
 #[tauri::command]
 fn show_overlay(app: AppHandle, overlay_corner: Option<String>) {
+    configure_capture_exclusion(&app);
     if let Some(window) = app.get_webview_window("overlay") {
         let monitor = window
             .current_monitor()
@@ -1428,7 +1514,7 @@ fn hide_overlay(app: AppHandle) {
 #[tauri::command]
 fn show_capture_overlay(app: AppHandle) {
     if let Some(window) = app.get_webview_window("capture") {
-        set_focus_target(None);
+        configure_capture_exclusion(&app);
         hide_internal_windows_for_capture(&app);
         let display_list = displays(&app);
         if let Some((x, y, width, height)) = virtual_display_bounds(&display_list) {
@@ -1577,6 +1663,7 @@ pub fn run() {
         .manage(ShotStore::default())
         .manage(auth::AccessGate::default())
         .setup(|app| {
+            configure_capture_exclusion(app.handle());
             if let (Some(window), Some(icon)) =
                 (app.get_webview_window("main"), app.default_window_icon())
             {
@@ -1651,8 +1738,7 @@ pub fn run() {
             reveal_shot,
             copy_shot_path,
             path_exists,
-            focused_window_region,
-            window_region_at_point,
+            window_target_at_cursor,
             read_shot_data_url,
             remove_local_data,
             validate_save_folder,
@@ -1698,6 +1784,33 @@ mod tests {
         assert_eq!(normalized_history_limit(Some(1)), 10);
         assert_eq!(normalized_history_limit(Some(120)), 120);
         assert_eq!(normalized_history_limit(Some(900)), 500);
+    }
+
+    #[test]
+    fn virtual_display_bounds_include_negative_and_secondary_monitor_coordinates() {
+        let displays = vec![
+            DisplayInfo {
+                id: "primary".to_string(),
+                name: "Primary".to_string(),
+                x: 0,
+                y: 0,
+                width: 1920,
+                height: 1080,
+                scale_factor: 1.25,
+                primary: true,
+            },
+            DisplayInfo {
+                id: "left".to_string(),
+                name: "Left".to_string(),
+                x: -1280,
+                y: 120,
+                width: 1280,
+                height: 1024,
+                scale_factor: 1.0,
+                primary: false,
+            },
+        ];
+        assert_eq!(virtual_display_bounds(&displays), Some((-1280, 0, 3200, 1144)));
     }
 
     #[test]

@@ -1,7 +1,7 @@
 export type ClipboardMode = "image" | "path" | "off";
 export type PostCaptureAction = "corner-overlay" | "open-editor" | "save-silently";
 export type OverlayCorner = "bottom-left" | "bottom-right" | "top-left" | "top-right";
-export type CaptureMode = "display" | "region";
+export type CaptureMode = "display" | "region" | "window";
 
 export interface ShotSettings {
   shortcut: string;
@@ -31,6 +31,12 @@ export interface CaptureRegion {
   y: number;
   width: number;
   height: number;
+}
+
+export interface WindowTarget {
+  windowId: string;
+  title: string;
+  region: CaptureRegion;
 }
 
 export interface ShotHistoryEntry {
@@ -66,6 +72,7 @@ export interface CaptureRequest {
   mode: CaptureMode;
   displayId?: string;
   region?: CaptureRegion;
+  windowId?: string;
   saveFolder?: string;
   clipboardMode?: ClipboardMode;
   postCaptureAction?: PostCaptureAction;

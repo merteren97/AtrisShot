@@ -4,7 +4,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { open } from "@tauri-apps/plugin-dialog";
 import { LazyStore } from "@tauri-apps/plugin-store";
-import type { CaptureRegion, CaptureRequest, CaptureResult, DisplayInfo, ShotHistoryEntry } from "@atris-shot/shot-core";
+import type { CaptureRequest, CaptureResult, DisplayInfo, ShotHistoryEntry, WindowTarget } from "@atris-shot/shot-core";
 
 export const isNativeRuntime = () =>
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -55,12 +55,8 @@ export const nativeRuntime = {
   revealShot: (path: string) => invoke<void>("reveal_shot", { path }),
   pathExists: (path: string) =>
     isNativeRuntime() ? invoke<boolean>("path_exists", { path }) : Promise.resolve(true),
-  focusedWindowRegion: () =>
-    isNativeRuntime() ? invoke<CaptureRegion | null>("focused_window_region") : Promise.resolve(null),
-  windowRegionAtPoint: (x: number, y: number) =>
-    isNativeRuntime()
-      ? invoke<CaptureRegion | null>("window_region_at_point", { x: Math.round(x), y: Math.round(y) })
-      : Promise.resolve(null),
+  windowTargetAtCursor: () =>
+    isNativeRuntime() ? invoke<WindowTarget | null>("window_target_at_cursor") : Promise.resolve(null),
   readShotDataUrl: (path: string) =>
     isNativeRuntime() ? invoke<string>("read_shot_data_url", { path }) : Promise.resolve(""),
   removeLocalData: () => invoke<void>("remove_local_data"),
