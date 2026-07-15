@@ -95,6 +95,7 @@ assert.match(releaseProxy, /x-forwarded-host/);
 assert.match(releaseProxyTest, /localhost env must not leak into production updater metadata/);
 assert.doesNotMatch(publicServer, /PrismaClient|JWT_SECRET|component|microphone|transcribe/i);
 assert.doesNotMatch(workflowSources, /COMPONENT_|component-production|Release AtrisShot Components|R2_|shot-components|voice-components/i);
+assert.match(releaseWorkflow, /run-name: Release AtrisShot \$\{\{ inputs\.release_version \}\}/);
 
 const landing = await readFile(new URL("../apps/landing/app/page.tsx", import.meta.url), "utf8");
 const landingCopy = await readFile(new URL("../apps/landing/lib/landing-copy.ts", import.meta.url), "utf8");

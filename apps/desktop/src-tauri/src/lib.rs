@@ -1810,7 +1810,10 @@ mod tests {
                 primary: false,
             },
         ];
-        assert_eq!(virtual_display_bounds(&displays), Some((-1280, 0, 3200, 1144)));
+        assert_eq!(
+            virtual_display_bounds(&displays),
+            Some((-1280, 0, 3200, 1144))
+        );
     }
 
     #[test]
