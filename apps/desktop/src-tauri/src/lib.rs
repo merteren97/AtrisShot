@@ -410,9 +410,9 @@ fn capture_hidden_windows_store() -> &'static Mutex<Vec<String>> {
 
 fn configure_capture_exclusion(app: &AppHandle) {
     for label in ["main", "editor", "overlay", "capture"] {
-        if let Some(window) = app.get_webview_window(label) {
+        if let Some(_window) = app.get_webview_window(label) {
             #[cfg(target_os = "windows")]
-            if let Ok(hwnd) = window.hwnd() {
+            if let Ok(hwnd) = _window.hwnd() {
                 use windows_sys::Win32::UI::WindowsAndMessaging::{
                     SetWindowDisplayAffinity, WDA_EXCLUDEFROMCAPTURE,
                 };
@@ -1196,11 +1196,7 @@ fn capture_shot(
         request.capture_delay_ms.unwrap_or(0).min(10_000),
     ));
 
-    let image_result = if request.mode == "display" {
-        capture_virtual_region(&captured_region)
-    } else {
-        capture_virtual_region(&captured_region)
-    };
+    let image_result = capture_virtual_region(&captured_region);
     restore_internal_windows_after_capture(&app);
     let image = image_result?;
     image.save(&path).map_err(|error| error.to_string())?;
