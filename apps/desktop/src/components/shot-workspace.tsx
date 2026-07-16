@@ -23,7 +23,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { SettingsPanel } from "@/components/settings-panel";
 import { DEFAULT_SHOT_SETTINGS } from "@atris-shot/shot-core";
 import { loadDesktopSettings } from "@/lib/desktop-settings";
-import { deleteShotHistoryEntry, loadShotHistory } from "@/lib/shot-history";
+import { deleteShotHistoryEntries, deleteShotHistoryEntry, loadShotHistory } from "@/lib/shot-history";
 import { isNativeRuntime, nativeRuntime } from "@/lib/native-runtime";
 import { useUiPreferences, type Locale } from "@/lib/ui-preferences";
 import { cn } from "@/lib/utils";
@@ -54,6 +54,10 @@ const workspaceCopy = {
     reveal: "Reveal",
     delete: "Delete",
     deleteSelected: "Delete selected",
+    selectAll: "Select all",
+    clearSelection: "Clear selection",
+    deleteSelectedConfirm: "Delete {count} selected screenshots and their local files? This cannot be undone.",
+    deleteFailed: "Selected screenshots could not be deleted:",
     selectedCount: "{count} selected",
     selectForDelete: "Select for deletion",
     dimensions: "Dimensions",
@@ -102,6 +106,10 @@ const workspaceCopy = {
     reveal: "Klasörde göster",
     delete: "Sil",
     deleteSelected: "Seçilenleri sil",
+    selectAll: "Tümünü seç",
+    clearSelection: "Seçimi kaldır",
+    deleteSelectedConfirm: "Seçilen {count} ekran görüntüsü ve yerel dosyaları silinsin mi? Bu işlem geri alınamaz.",
+    deleteFailed: "Seçilen ekran görüntüleri silinemedi:",
     selectedCount: "{count} seçili",
     selectForDelete: "Silmek için seç",
     dimensions: "Boyut",
@@ -150,6 +158,10 @@ const localizedWorkspaceCopy = {
     latest: "Seçili ekran görüntüsü",
     edit: "Düzenle",
     deleteSelected: "Seçilenleri sil",
+    selectAll: "Tümünü seç",
+    clearSelection: "Seçimi kaldır",
+    deleteSelectedConfirm: "Seçilen {count} ekran görüntüsü ve yerel dosyaları silinsin mi? Bu işlem geri alınamaz.",
+    deleteFailed: "Seçilen ekran görüntüleri silinemedi:",
     selectedCount: "{count} seçili",
     selectForDelete: "Silmek için seç",
     reveal: "Klasörde göster",
@@ -331,15 +343,22 @@ export function ShotWorkspace({ session, onLogout }: { session: ShotSession; onL
   const deleteSelectedHistoryEntries = async (ids: string[]) => {
     const uniqueIds = [...new Set(ids)];
     if (!uniqueIds.length) return;
-    let next = historyEntries;
-    for (const id of uniqueIds) {
-      next = await deleteShotHistoryEntry(id);
+    const confirmed = await nativeRuntime.confirmAction(
+      text.deleteSelectedConfirm.replace("{count}", String(uniqueIds.length)),
+      text.deleteSelected,
+    );
+    if (!confirmed) return;
+    setError("");
+    try {
+      const next = await deleteShotHistoryEntries(uniqueIds);
+      setHistoryEntries(next);
+      void refreshMissingEntries(next);
+      setSelectedEntryIds(new Set());
+      setSelectedEntry((current) => (current && next.some((entry) => entry.id === current.id) ? current : next[0] ?? null));
+      setStatus(uniqueIds.length === 1 ? text.removed : text.deleteSelected);
+    } catch (deleteError) {
+      setError(`${text.deleteFailed} ${deleteError instanceof Error ? deleteError.message : String(deleteError)}`);
     }
-    setHistoryEntries(next);
-    void refreshMissingEntries(next);
-    setSelectedEntryIds(new Set());
-    setSelectedEntry((current) => (current && next.some((entry) => entry.id === current.id) ? current : next[0] ?? null));
-    setStatus(uniqueIds.length === 1 ? text.removed : text.deleteSelected);
   };
 
   const handleLocalDataRemoved = useCallback(() => {
@@ -406,6 +425,13 @@ export function ShotWorkspace({ session, onLogout }: { session: ShotSession; onL
               return next;
             })
           }
+          onToggleAll={() =>
+            setSelectedEntryIds((current) =>
+              current.size === historyEntries.length
+                ? new Set()
+                : new Set(historyEntries.map((entry) => entry.id)),
+            )
+          }
           onEdit={(entry) => void openEditor(entry)}
           onCopyPath={(entry) => void copyPath(entry.editedPath || entry.originalPath)}
           onReveal={(entry) => void reveal(entry.editedPath || entry.originalPath)}
@@ -427,6 +453,7 @@ function HistoryWorkspace({
   text,
   onSelect,
   onToggleSelection,
+  onToggleAll,
   onEdit,
   onCopyPath,
   onReveal,
@@ -442,6 +469,7 @@ function HistoryWorkspace({
   text: WorkspaceText;
   onSelect: (entry: ShotHistoryEntry) => void;
   onToggleSelection: (entry: ShotHistoryEntry) => void;
+  onToggleAll: () => void;
   onEdit: (entry: ShotHistoryEntry) => void;
   onCopyPath: (entry: ShotHistoryEntry) => void;
   onReveal: (entry: ShotHistoryEntry) => void;
@@ -450,6 +478,7 @@ function HistoryWorkspace({
 }) {
   const selectedMissing = Boolean(selected && missingEntryIds.has(selected.id));
   const selectedForDeleteCount = selectedEntryIds.size;
+  const allSelected = entries.length > 0 && selectedForDeleteCount === entries.length;
   return (
     <section className="grid min-h-0 flex-1 grid-cols-[300px_1fr] overflow-hidden max-md:grid-cols-1">
       <aside className="flex min-h-0 flex-col border-r bg-card/60">
@@ -460,17 +489,31 @@ function HistoryWorkspace({
               {selectedForDeleteCount ? text.selectedCount.replace("{count}", String(selectedForDeleteCount)) : `${entries.length} ${text.localScreenshots}`}
             </p>
           </div>
-          <Button
-            type="button"
-            size="icon"
-            variant="ghost"
-            aria-label={text.deleteSelected}
-            title={text.deleteSelected}
-            disabled={!selectedForDeleteCount}
-            onClick={() => onDeleteSelected([...selectedEntryIds])}
-          >
-            <Trash2 className="h-4 w-4" />
-          </Button>
+          <div className="flex items-center gap-1">
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="h-8 px-2 text-xs"
+              aria-pressed={allSelected}
+              disabled={!entries.length}
+              onClick={onToggleAll}
+            >
+              <Check className="h-3.5 w-3.5" />
+              {allSelected ? text.clearSelection : text.selectAll}
+            </Button>
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              aria-label={text.deleteSelected}
+              title={text.deleteSelected}
+              disabled={!selectedForDeleteCount}
+              onClick={() => onDeleteSelected([...selectedEntryIds])}
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto p-3 max-md:h-56 max-md:flex-none">
           {entries.length ? (

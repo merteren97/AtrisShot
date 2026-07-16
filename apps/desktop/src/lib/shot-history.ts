@@ -36,6 +36,16 @@ export async function deleteShotHistoryEntry(id: string): Promise<ShotHistoryEnt
   return next;
 }
 
+export async function deleteShotHistoryEntries(ids: string[]): Promise<ShotHistoryEntry[]> {
+  const uniqueIds = [...new Set(ids)];
+  if (!uniqueIds.length) return loadShotHistory();
+  if (isNativeRuntime()) return nativeRuntime.deleteShots(uniqueIds);
+  const selectedIds = new Set(uniqueIds);
+  const next = readPreviewHistory().filter((entry) => !selectedIds.has(entry.id));
+  writePreviewHistory(next);
+  return next;
+}
+
 export async function clearShotHistory(): Promise<ShotHistoryEntry[]> {
   if (isNativeRuntime()) return nativeRuntime.clearShotHistory();
   if (typeof window !== "undefined") localStorage.removeItem(HISTORY_KEY);

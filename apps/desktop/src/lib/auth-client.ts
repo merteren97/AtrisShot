@@ -65,7 +65,7 @@ const request = async <T>(path: string, init: RequestInit): Promise<T> => {
 const normalizeMembership = (membership?: AtrisMembership): AtrisMembership =>
   membership || { status: "inactive", plan: "Free" };
 
-export async function login(email: string, password: string): Promise<ShotSession> {
+export async function login(email: string, password: string, rememberSession = true): Promise<ShotSession> {
   const data = await request<LoginResponse>("/api/auth/login", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -81,7 +81,8 @@ export async function login(email: string, password: string): Promise<ShotSessio
     offline: false,
   };
   if (isNativeRuntime()) {
-    await nativeRuntime.storeSessionToken(data.token);
+    if (rememberSession) await nativeRuntime.storeSessionToken(data.token);
+    else await nativeRuntime.deleteSessionToken();
     if (hasProductAccess(membership, data.user)) {
       await nativeRuntime.authorizeProductAccess(validatedAtMs, false);
     } else {
@@ -95,7 +96,10 @@ export async function login(email: string, password: string): Promise<ShotSessio
 export async function restoreSession(): Promise<ShotSession> {
   const cached = readMetadata();
   const token = isNativeRuntime() ? await nativeRuntime.readSessionToken() : undefined;
-  if (!token || !cached.user) return signedOut();
+  if (!token || !cached.user) {
+    if (!token && cached.user) localStorage.removeItem(SESSION_META_KEY);
+    return signedOut();
+  }
   try {
     const data = await request<SessionResponse>("/api/auth/me", {
       method: "GET",

@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
-import { open } from "@tauri-apps/plugin-dialog";
+import { ask, open } from "@tauri-apps/plugin-dialog";
 import { LazyStore } from "@tauri-apps/plugin-store";
 import type { CaptureRequest, CaptureResult, DisplayInfo, ShotHistoryEntry, WindowTarget } from "@atris-shot/shot-core";
 
@@ -51,6 +51,7 @@ export const nativeRuntime = {
   latestShot: () =>
     isNativeRuntime() ? invoke<ShotHistoryEntry | null>("latest_shot") : Promise.resolve(null),
   deleteShot: (id: string) => invoke<ShotHistoryEntry[]>("delete_shot", { id }),
+  deleteShots: (ids: string[]) => invoke<ShotHistoryEntry[]>("delete_shots", { ids }),
   clearShotHistory: () => invoke<ShotHistoryEntry[]>("clear_shot_history"),
   revealShot: (path: string) => invoke<void>("reveal_shot", { path }),
   pathExists: (path: string) =>
@@ -79,6 +80,10 @@ export const nativeRuntime = {
     });
     return typeof selected === "string" ? selected : null;
   },
+  confirmAction: (message: string, title: string) =>
+    isNativeRuntime()
+      ? ask(message, { title, kind: "warning" })
+      : Promise.resolve(window.confirm(message)),
   openStorageFolder: (saveFolder: string) =>
     invoke<void>("open_storage_folder", { saveFolder }),
   applyAnnotations: (id: string, annotationsJson: string) =>
@@ -86,6 +91,8 @@ export const nativeRuntime = {
   saveShortcut: (shortcut: string, previousShortcut?: string) =>
     invoke<string>("save_shortcut", { shortcut, previousShortcut }),
   showOverlay: (overlayCorner?: string) => invoke<void>("show_overlay", { overlayCorner }),
+  setOverlayStackSize: (itemCount: number, overlayCorner?: string) =>
+    invoke<void>("set_overlay_stack_size", { itemCount, overlayCorner }),
   hideOverlay: () => invoke<void>("hide_overlay"),
   showCaptureOverlay: () => invoke<void>("show_capture_overlay"),
   hideCaptureOverlay: () => invoke<void>("hide_capture_overlay"),

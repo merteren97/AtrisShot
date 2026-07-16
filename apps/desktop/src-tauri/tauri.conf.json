@@ -38,7 +38,7 @@
         "title": "AtrisShot Result",
         "url": "/overlay",
         "width": 440,
-        "height": 190,
+        "height": 128,
         "transparent": true,
         "alwaysOnTop": true,
         "decorations": false,

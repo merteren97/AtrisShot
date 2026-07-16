@@ -270,6 +270,8 @@ function ShotEditor({
   const editInteractionRef = useRef<EditInteraction | null>(null);
   const panInteractionRef = useRef<PanInteraction | null>(null);
   const textInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const copiedAnnotationRef = useRef<ShotAnnotation | null>(null);
+  const pasteSequenceRef = useRef(0);
   const [activeTool, setActiveTool] = useState<EditorTool>("select");
   const [draftColor, setDraftColor] = useState("#0ea5e9");
   const [strokeWidth, setStrokeWidth] = useState(4);
@@ -335,6 +337,8 @@ function ShotEditor({
     setZoomMode("fit");
     setManualZoom(1);
     setPanInteractionSync(null);
+    copiedAnnotationRef.current = null;
+    pasteSequenceRef.current = 0;
   }, [entry?.id, entryLoadToken]);
 
   useEffect(() => {
@@ -380,6 +384,36 @@ function ShotEditor({
     changeAnnotations(annotationsRef.current.filter((annotation) => annotation.id !== id));
     if (selectedAnnotationIdRef.current === id) setSelectedAnnotationIdSync(null);
     if (editingTextId === id) setEditingTextId(null);
+  };
+
+  const copySelectedAnnotation = () => {
+    const selectedId = selectedAnnotationIdRef.current;
+    const selected = annotationsRef.current.find((annotation) => annotation.id === selectedId);
+    if (!selected) return false;
+    copiedAnnotationRef.current = cloneAnnotations([selected])[0];
+    pasteSequenceRef.current = 0;
+    return true;
+  };
+
+  const pasteCopiedAnnotation = () => {
+    const copied = copiedAnnotationRef.current;
+    if (!copied || !entry) return false;
+    pasteSequenceRef.current += 1;
+    const offset = Math.min(8, pasteSequenceRef.current) * 16;
+    const clone = { ...cloneAnnotations([copied])[0], id: crypto.randomUUID() };
+    const forward = translateAnnotation(clone, clone.points, offset, offset, entry);
+    const movedForward = forward.points.some((point, index) =>
+      point.x !== clone.points[index]?.x || point.y !== clone.points[index]?.y,
+    );
+    const next = movedForward
+      ? forward
+      : translateAnnotation(clone, clone.points, -offset, -offset, entry);
+    rememberUndo();
+    changeAnnotations([...annotationsRef.current, next]);
+    setActiveTool("select");
+    setEditingTextId(null);
+    setSelectedAnnotationIdSync(next.id);
+    return true;
   };
 
   const finishTextEdit = (id: string) => {
@@ -694,6 +728,14 @@ function ShotEditor({
         zoomBy(0.9);
         return;
       }
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "c" && !typing) {
+        if (copySelectedAnnotation()) event.preventDefault();
+        return;
+      }
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "v" && !typing) {
+        if (pasteCopiedAnnotation()) event.preventDefault();
+        return;
+      }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z" && !typing) {
         event.preventDefault();
         undo();
@@ -723,7 +765,7 @@ function ShotEditor({
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
     };
-  }, [annotations, canApply, manualZoom, onApply, selectedAnnotation, selectedAnnotationId, undoStack, zoomMode, zoomScale]);
+  }, [annotations, canApply, entry, manualZoom, onApply, selectedAnnotation, selectedAnnotationId, undoStack, zoomMode, zoomScale]);
 
   return (
     <div className="flex h-full min-h-0 flex-col">

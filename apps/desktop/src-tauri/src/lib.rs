@@ -15,8 +15,8 @@ use std::{
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, Position, Size, State,
-    WindowEvent,
+    AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, PhysicalSize, Position, Size,
+    State, WindowEvent,
 };
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
@@ -232,6 +232,19 @@ fn remove_history_entry(entries: &mut Vec<ShotHistoryEntry>, id: &str) {
     entries.retain(|entry| entry.id != id);
 }
 
+fn remove_history_entries(
+    entries: &mut Vec<ShotHistoryEntry>,
+    ids: &[String],
+) -> Vec<ShotHistoryEntry> {
+    let removed = entries
+        .iter()
+        .filter(|entry| ids.iter().any(|id| id == &entry.id))
+        .cloned()
+        .collect::<Vec<_>>();
+    entries.retain(|entry| !ids.iter().any(|id| id == &entry.id));
+    removed
+}
+
 fn history_entry_file_paths(entry: &ShotHistoryEntry) -> Vec<PathBuf> {
     let mut paths = Vec::new();
     for value in [
@@ -251,10 +264,11 @@ fn history_entry_file_paths(entry: &ShotHistoryEntry) -> Vec<PathBuf> {
     paths
 }
 
-fn remove_history_entry_files(entry: &ShotHistoryEntry) {
+fn remove_history_entry_files_checked(entry: &ShotHistoryEntry) -> Result<(), String> {
     for path in history_entry_file_paths(entry) {
-        let _ = remove_file_if_exists(&path);
+        remove_file_if_exists(&path)?;
     }
+    Ok(())
 }
 
 fn clear_history_entries(entries: &mut Vec<ShotHistoryEntry>) {
@@ -1256,12 +1270,43 @@ fn delete_shot(
     if let Some(entry) = entries.iter().find(|entry| entry.id == id) {
         entry_to_remove = Some(entry.clone());
     }
+    if let Some(entry) = &entry_to_remove {
+        remove_history_entry_files_checked(entry)?;
+    }
     remove_history_entry(&mut entries, &id);
     persist_history(&app, &entries)?;
-    if let Some(entry) = entry_to_remove {
-        remove_history_entry_files(&entry);
-    }
     Ok(entries.clone())
+}
+
+#[tauri::command]
+fn delete_shots(
+    app: AppHandle,
+    store: State<'_, ShotStore>,
+    ids: Vec<String>,
+) -> Result<Vec<ShotHistoryEntry>, String> {
+    let mut entries = store
+        .entries
+        .lock()
+        .map_err(|_| "Shot history state is unavailable.".to_string())?;
+    if entries.is_empty() {
+        *entries = load_history_from_disk(&app);
+    }
+    let requested = entries
+        .iter()
+        .filter(|entry| ids.iter().any(|id| id == &entry.id))
+        .cloned()
+        .collect::<Vec<_>>();
+    for entry in &requested {
+        remove_history_entry_files_checked(entry)?;
+    }
+    let removed = remove_history_entries(&mut entries, &ids);
+    persist_history(&app, &entries)?;
+    let remaining = entries.clone();
+    drop(entries);
+    if removed.len() != requested.len() {
+        return Err("Shot history changed during deletion.".to_string());
+    }
+    Ok(remaining)
 }
 
 #[tauri::command]
@@ -1276,9 +1321,15 @@ fn clear_shot_history(
     if entries.is_empty() {
         *entries = load_history_from_disk(&app);
     }
+    let removed = entries.clone();
+    for entry in &removed {
+        remove_history_entry_files_checked(entry)?;
+    }
     clear_history_entries(&mut entries);
     persist_history(&app, &entries)?;
-    Ok(entries.clone())
+    let remaining = entries.clone();
+    drop(entries);
+    Ok(remaining)
 }
 
 #[tauri::command]
@@ -1476,28 +1527,42 @@ fn overlay_position(
     }
 }
 
+fn position_overlay_window(app: &AppHandle, corner: &str) {
+    let Some(window) = app.get_webview_window("overlay") else {
+        return;
+    };
+    let monitor = window
+        .current_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| app.primary_monitor().ok().flatten());
+    if let (Some(monitor), Ok(size)) = (monitor, window.outer_size()) {
+        let position = overlay_position(corner, monitor.position(), monitor.size(), &size);
+        let _ = window.set_position(Position::Physical(position));
+    }
+}
+
+#[tauri::command]
+fn set_overlay_stack_size(app: AppHandle, item_count: u32, overlay_corner: Option<String>) {
+    if item_count == 0 {
+        hide_overlay(app);
+        return;
+    }
+    let item_count = item_count.clamp(1, 5);
+    let height = 16 + (item_count * 112) + (item_count.saturating_sub(1) * 8);
+    if let Some(window) = app.get_webview_window("overlay") {
+        let _ = window.set_size(Size::Logical(LogicalSize::new(440.0, f64::from(height))));
+        position_overlay_window(&app, overlay_corner.as_deref().unwrap_or("bottom-left"));
+        let _ = window.set_always_on_top(true);
+        let _ = window.show();
+    }
+}
+
 #[tauri::command]
 fn show_overlay(app: AppHandle, overlay_corner: Option<String>) {
     configure_capture_exclusion(&app);
     if let Some(window) = app.get_webview_window("overlay") {
-        let monitor = window
-            .current_monitor()
-            .ok()
-            .flatten()
-            .or_else(|| app.primary_monitor().ok().flatten());
-        if let Some(monitor) = monitor {
-            if let Ok(size) = window.outer_size() {
-                let monitor_position = monitor.position();
-                let monitor_size = monitor.size();
-                let position = overlay_position(
-                    overlay_corner.as_deref().unwrap_or("bottom-left"),
-                    monitor_position,
-                    monitor_size,
-                    &size,
-                );
-                let _ = window.set_position(Position::Physical(position));
-            }
-        }
+        position_overlay_window(&app, overlay_corner.as_deref().unwrap_or("bottom-left"));
         let _ = window.set_always_on_top(true);
         let _ = app.emit("result-overlay-opened", ());
         let _ = window.show();
@@ -1732,6 +1797,7 @@ pub fn run() {
             list_shot_history,
             capture_shot,
             delete_shot,
+            delete_shots,
             clear_shot_history,
             latest_shot,
             apply_annotations,
@@ -1745,6 +1811,7 @@ pub fn run() {
             open_storage_folder,
             save_shortcut,
             show_overlay,
+            set_overlay_stack_size,
             hide_overlay,
             show_capture_overlay,
             hide_capture_overlay,
@@ -1840,10 +1907,18 @@ mod tests {
 
     #[test]
     fn history_mutation_helpers_delete_and_clear_entries() {
-        let mut entries = vec![sample_history_entry("one"), sample_history_entry("two")];
+        let mut entries = vec![
+            sample_history_entry("one"),
+            sample_history_entry("two"),
+            sample_history_entry("three"),
+        ];
         remove_history_entry(&mut entries, "one");
-        assert_eq!(entries.len(), 1);
+        assert_eq!(entries.len(), 2);
         assert_eq!(entries[0].id, "two");
+        let removed = remove_history_entries(&mut entries, &["two".to_string()]);
+        assert_eq!(removed.len(), 1);
+        assert_eq!(removed[0].id, "two");
+        assert_eq!(entries[0].id, "three");
         clear_history_entries(&mut entries);
         assert!(entries.is_empty());
     }
@@ -1900,7 +1975,7 @@ mod tests {
         entry.edited_path = Some(edited.to_string_lossy().to_string());
         entry.thumbnail_path = Some(thumbnail.to_string_lossy().to_string());
 
-        remove_history_entry_files(&entry);
+        remove_history_entry_files_checked(&entry).expect("history files should be removed");
 
         assert!(!original.exists());
         assert!(!edited.exists());

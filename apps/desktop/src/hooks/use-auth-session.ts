@@ -28,7 +28,8 @@ export function useAuthSession() {
     checking,
     session,
     state,
-    login: async (email: string, password: string) => setSession(await login(email, password)),
+    login: async (email: string, password: string, rememberSession = true) =>
+      setSession(await login(email, password, rememberSession)),
     logout: async () => {
       await clearSession();
       setSession(emptySession);

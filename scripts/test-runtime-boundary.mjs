@@ -67,6 +67,8 @@ assert.match(authClient, /\/api\/auth\/me/);
 assert.match(authClient, /authorizeProductAccess/);
 assert.match(authClient, /24 \* 60 \* 60 \* 1000/);
 assert.match(authClient, /hasProductAccess/);
+assert.match(authClient, /rememberSession/);
+assert.match(authClient, /else await nativeRuntime\.deleteSessionToken\(\)/);
 assert.doesNotMatch(authClient, /localStorage\.setItem\([^)]*token/i);
 assert.doesNotMatch(authClient, /Premium or Admin/);
 assert.match(nativeAuth, /keyring::Entry/);
@@ -76,6 +78,7 @@ assert.equal(tauriConfig.app.windows.some((window) => window.label === "capture"
 assert.equal(tauriConfig.app.windows.some((window) => window.label === "editor" && window.url === "/editor" && window.visible === false), true);
 assert.equal(tauriCapability.windows.includes("editor"), true);
 assert.equal(tauriCapability.permissions.includes("dialog:allow-open"), true);
+assert.equal(tauriCapability.permissions.includes("dialog:allow-ask"), true);
 assert.match(JSON.stringify(tauriConfig.plugins.updater.endpoints), /shot\.atrishub\.com/);
 
 const publicServer = await readFile(
@@ -117,6 +120,18 @@ const uiPreferences = await readFile(
   new URL("../apps/desktop/src/lib/ui-preferences.tsx", import.meta.url),
   "utf8",
 );
+const authShell = await readFile(
+  new URL("../apps/desktop/src/components/auth-shell.tsx", import.meta.url),
+  "utf8",
+);
+const languagePicker = await readFile(
+  new URL("../apps/desktop/src/components/language-picker.tsx", import.meta.url),
+  "utf8",
+);
+const shotHistory = await readFile(
+  new URL("../apps/desktop/src/lib/shot-history.ts", import.meta.url),
+  "utf8",
+);
 const workspace = await readFile(
   new URL("../apps/desktop/src/components/shot-workspace.tsx", import.meta.url),
   "utf8",
@@ -155,6 +170,9 @@ assert.match(nativeRuntime, /capture-overlay-opened/);
 assert.match(nativeRuntime, /onResultOverlayOpened/);
 assert.match(nativeRuntime, /result-overlay-opened/);
 assert.match(nativeRuntime, /chooseSaveFolder/);
+assert.match(nativeRuntime, /setOverlayStackSize/);
+assert.match(nativeRuntime, /deleteShots/);
+assert.match(nativeRuntime, /confirmAction/);
 assert.match(nativeRuntime, /@tauri-apps\/plugin-dialog/);
 assert.doesNotMatch(nativeRuntime, /convertFileSrc|fileUrl/);
 assert.match(workspace, /readShotDataUrl/);
@@ -163,6 +181,10 @@ assert.match(workspace, /Selected screenshot/);
 assert.match(workspace, /selectedEntryIds/);
 assert.match(workspace, /onDeleteSelected/);
 assert.match(workspace, /deleteSelectedHistoryEntries/);
+assert.match(workspace, /deleteShotHistoryEntries/);
+assert.match(workspace, /onToggleAll/);
+assert.match(workspace, /confirmAction/);
+assert.match(shotHistory, /nativeRuntime\.deleteShots\(uniqueIds\)/);
 assert.match(workspace, /grid-cols-\[300px_1fr\]/);
 assert.match(workspace, /aspect-video w-full/);
 assert.match(workspace, /screen: "Screen"/);
@@ -182,8 +204,13 @@ assert.doesNotMatch(workspace, /function CapturePanel|function EditorPanel/);
 assert.doesNotMatch(workspace, /Capture display|Display layout|click a display/);
 assert.match(resultOverlay, /readShotDataUrl/);
 assert.match(resultOverlay, /previewUrl/);
-assert.match(resultOverlay, /nativeRuntime\.latestShot\(\)/);
+assert.match(resultOverlay, /nativeRuntime\s*\.\s*latestShot\(\)/);
 assert.match(resultOverlay, /onResultOverlayOpened/);
+assert.match(resultOverlay, /MAX_OVERLAY_ENTRIES = 5/);
+assert.match(resultOverlay, /upsertOverlayEntry/);
+assert.match(resultOverlay, /setOverlayStackSize\(entries\.length/);
+assert.match(resultOverlay, /onDragEnd=\{onDismiss\}/);
+assert.match(resultOverlay, /group-hover:opacity-100 group-focus-within:opacity-100/);
 assert.match(resultOverlay, /openEditorWindow\(entry\.id\)/);
 assert.doesNotMatch(resultOverlay, /emitEditShotRequested|openMainWindow/);
 assert.match(resultOverlay, /data-path-drag/);
@@ -224,6 +251,10 @@ assert.match(editorWindow, /normalizeAnnotations/);
 assert.match(editorWindow, /cloneAnnotations/);
 assert.match(editorWindow, /undoStack/);
 assert.match(editorWindow, /event\.key\.toLowerCase\(\) === "z"/);
+assert.match(editorWindow, /event\.key\.toLowerCase\(\) === "c"/);
+assert.match(editorWindow, /event\.key\.toLowerCase\(\) === "v"/);
+assert.match(editorWindow, /copiedAnnotationRef/);
+assert.match(editorWindow, /crypto\.randomUUID\(\)/);
 assert.match(editorWindow, /event\.key === "Enter"/);
 assert.match(editorWindow, /event\.key === "Delete"/);
 assert.match(editorWindow, /"resize-start"/);
@@ -261,6 +292,9 @@ assert.match(rust, /window_target_at_cursor_native/);
 assert.match(rust, /hide_internal_windows_for_capture/);
 assert.match(rust, /restore_internal_windows_after_capture/);
 assert.match(rust, /result-overlay-opened/);
+assert.match(rust, /fn set_overlay_stack_size/);
+assert.match(rust, /item_count\.clamp\(1, 5\)/);
+assert.match(rust, /fn delete_shots/);
 assert.match(rust, /"open-editor" => open_editor_window/);
 assert.match(rust, /tauri_plugin_dialog::init/);
 assert.match(rust, /tauri_plugin_single_instance::init/);
@@ -298,6 +332,11 @@ assert.match(rust, /blur_pixel_size_changes_rendered_pixels/);
 assert.match(rust, /max_line_width/);
 assert.match(rust, /remove_history_entry_files/);
 assert.match(rust, /history_entry_file_cleanup_removes_original_edited_and_thumbnail/);
+assert.match(authShell, /LanguagePicker/);
+assert.match(authShell, /atrisshot-remember-session/);
+assert.match(authShell, /auth\.login\(email, password, rememberSession\)/);
+assert.match(languagePicker, /role="menuitemradio"/);
+assert.match(uiPreferences, /rememberMe/);
 
 const desktopTheme = await readFile(new URL("../apps/desktop/src/app/globals.css", import.meta.url), "utf8");
 const landingTheme = await readFile(new URL("../apps/landing/app/globals.css", import.meta.url), "utf8");
