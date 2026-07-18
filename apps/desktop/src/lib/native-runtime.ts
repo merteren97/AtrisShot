@@ -4,6 +4,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { ask, open } from "@tauri-apps/plugin-dialog";
 import { LazyStore } from "@tauri-apps/plugin-store";
+import { startDrag } from "@crabnebula/tauri-plugin-drag";
 import type { CaptureRequest, CaptureResult, DisplayInfo, ShotHistoryEntry, WindowTarget } from "@atris-shot/shot-core";
 
 export const isNativeRuntime = () =>
@@ -68,6 +69,14 @@ export const nativeRuntime = {
     }
     await navigator.clipboard.writeText(path);
   },
+  copyShotImage: (id: string) => invoke<void>("copy_shot_image", { id }),
+  startShotDrag: (path: string, icon: string) =>
+    new Promise<"Dropped" | "Cancelled">((resolve, reject) => {
+      void startDrag(
+        { item: [path], icon, mode: "copy" },
+        ({ result }) => resolve(result),
+      ).catch(reject);
+    }),
   validateSaveFolder: (saveFolder: string) =>
     invoke<string>("validate_save_folder", { saveFolder }),
   chooseSaveFolder: async (currentFolder?: string) => {
@@ -90,10 +99,18 @@ export const nativeRuntime = {
     invoke<ShotHistoryEntry>("apply_annotations", { id, annotationsJson }),
   saveShortcut: (shortcut: string, previousShortcut?: string) =>
     invoke<string>("save_shortcut", { shortcut, previousShortcut }),
+  saveOverlayShortcut: (shortcut: string, previousShortcut?: string) =>
+    invoke<string>("save_overlay_shortcut", { shortcut, previousShortcut }),
   showOverlay: (overlayCorner?: string) => invoke<void>("show_overlay", { overlayCorner }),
   setOverlayStackSize: (itemCount: number, overlayCorner?: string) =>
     invoke<void>("set_overlay_stack_size", { itemCount, overlayCorner }),
+  setOverlayPresentation: (
+    itemCount: number,
+    state: "expanded" | "collapsed" | "hidden",
+    overlayCorner?: string,
+  ) => invoke<void>("set_overlay_presentation", { itemCount, state, overlayCorner }),
   hideOverlay: () => invoke<void>("hide_overlay"),
+  toggleOverlay: (overlayCorner?: string) => invoke<void>("toggle_overlay", { overlayCorner }),
   showCaptureOverlay: () => invoke<void>("show_capture_overlay"),
   hideCaptureOverlay: () => invoke<void>("hide_capture_overlay"),
   openMainWindow: () => invoke<void>("open_main_window"),
@@ -115,6 +132,13 @@ export const nativeRuntime = {
     listen("capture-overlay-opened", callback),
   onResultOverlayOpened: (callback: () => void) =>
     listen("result-overlay-opened", callback),
+  onResultOverlayToggleRequested: (callback: () => void) =>
+    listen("result-overlay-toggle-requested", callback),
+  onCaptureUnavailable: (callback: (payload: { code: "no-display" | "overlay-unavailable" | "capture-failed" }) => void) =>
+    listen<{ code: "no-display" | "overlay-unavailable" | "capture-failed" }>(
+      "capture-unavailable",
+      (event) => callback(event.payload),
+    ),
   emitUiPreferencesChanged: (preferences: { locale: string; theme: string }) =>
     emit("ui-preferences-changed", preferences),
   setTrayLocale: (locale: string) => invoke<void>("set_tray_locale", { locale }),

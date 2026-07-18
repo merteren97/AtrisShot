@@ -17,7 +17,7 @@ import {
   Save,
   Trash2,
 } from "lucide-react";
-import type { ClipboardMode, OverlayCorner, PostCaptureAction, ShotSettings } from "@atris-shot/shot-core";
+import type { ClipboardMode, OverlayCorner, OverlayVisibilityMode, PostCaptureAction, ShotSettings } from "@atris-shot/shot-core";
 import { DEFAULT_SHOT_SETTINGS } from "@atris-shot/shot-core";
 import { ShortcutRecorder } from "@/components/shortcut-recorder";
 import { Button } from "@/components/ui/button";
@@ -32,7 +32,15 @@ const copy = {
   en: {
     loading: "Loading preferences",
     title: "Settings",
-    description: "Configure capture behavior, output, overlay placement, and local history.",
+    description: "Control capture, quick preview, storage, and appearance.",
+    generalSection: "General",
+    captureSection: "Capture",
+    previewSection: "Quick preview",
+    storageSection: "Storage",
+    advancedSection: "Advanced",
+    savingStatus: "Saving...",
+    savedStatus: "Saved",
+    failedStatus: "Could not save",
     preferenceSaved: "Preference saved.",
     shortcutUpdated: "Shortcut updated.",
     shortcutError: "Shortcut could not be registered:",
@@ -43,7 +51,7 @@ const copy = {
     openFolderDesktopOnly: "Open folder is available in the packaged desktop app.",
     storageOpenError: "Storage folder could not be opened:",
     appearanceTitle: "Appearance and language",
-    appearanceDescription: "Choose the interface language and color mode used by the desktop app and tray menu.",
+    appearanceDescription: "Choose the interface language and color mode used by the desktop app and system tray.",
     language: "Language",
     english: "English",
     turkish: "Turkish",
@@ -51,25 +59,33 @@ const copy = {
     system: "System",
     light: "Light",
     dark: "Dark",
-    trayLanguageHint: "The tray right-click menu follows this language.",
+    trayLanguageHint: "The system tray menu follows this language.",
     shortcutTitle: "Capture shortcut",
-    shortcutDescription: "Register the global shortcut that opens the full-screen capture overlay.",
+    shortcutDescription: "Register the global shortcut that opens full-screen capture.",
     recording: "Recording...",
     invalidShortcut: "Invalid shortcut",
     reset: "Reset",
     saveShortcut: "Save shortcut",
     outputTitle: "Output",
     outputDescription: "Choose what happens immediately after a screenshot is saved.",
-    clipboard: "Clipboard",
+    clipboard: "After-capture clipboard",
+    clipboardHint: "Choose whether AtrisShot replaces your current clipboard after a capture.",
     copyImage: "Copy image",
-    copyPath: "Copy path",
-    off: "Off",
+    copyPath: "Copy file path",
+    off: "Do not change clipboard",
     afterCapture: "After capture",
-    cornerOverlay: "Corner overlay",
+    cornerOverlay: "Show quick preview",
     openEditor: "Open editor",
     saveSilently: "Save silently",
-    overlayTitle: "Result overlay",
-    overlayDescription: "Place the result preview where it will not interrupt your work.",
+    overlayTitle: "Quick preview",
+    overlayDescription: "Choose how recent captures appear and how the panel can be recalled.",
+    overlayVisibility: "Visibility",
+    edgeAutoHide: "Collapse to edge",
+    alwaysVisible: "Keep open",
+    shortcutOnly: "Shortcut only",
+    overlayShortcutTitle: "Quick preview shortcut",
+    overlayShortcutDescription: "Toggle the recent-captures panel from anywhere.",
+    saveOverlayShortcut: "Save preview shortcut",
     position: "Position",
     bottomLeft: "Bottom left",
     bottomRight: "Bottom right",
@@ -103,7 +119,15 @@ const copy = {
   tr: {
     loading: "Tercihler yükleniyor",
     title: "Ayarlar",
-    description: "Yakalama davranışını, çıktıyı, overlay konumunu ve yerel geçmişi yapılandır.",
+    description: "Yakalama, hızlı önizleme, depolama ve görünüm tercihlerini yönet.",
+    generalSection: "Genel",
+    captureSection: "Yakalama",
+    previewSection: "Hızlı önizleme",
+    storageSection: "Depolama",
+    advancedSection: "Gelişmiş",
+    savingStatus: "Kaydediliyor...",
+    savedStatus: "Kaydedildi",
+    failedStatus: "Kaydedilemedi",
     preferenceSaved: "Tercih kaydedildi.",
     shortcutUpdated: "Kısayol güncellendi.",
     shortcutError: "Kısayol kaydedilemedi:",
@@ -114,7 +138,7 @@ const copy = {
     openFolderDesktopOnly: "Klasör açma paketlenmiş masaüstü uygulamasında kullanılabilir.",
     storageOpenError: "Depolama klasörü açılamadı:",
     appearanceTitle: "Görünüm ve dil",
-    appearanceDescription: "Masaüstü uygulaması ve tray menüsü için arayüz dilini ve renk modunu seç.",
+    appearanceDescription: "Masaüstü uygulaması ve sistem tepsisi için arayüz dilini ve renk modunu seç.",
     language: "Dil",
     english: "İngilizce",
     turkish: "Türkçe",
@@ -122,25 +146,33 @@ const copy = {
     system: "Sistem",
     light: "Açık",
     dark: "Koyu",
-    trayLanguageHint: "Tray sağ tık menüsü bu dili takip eder.",
+    trayLanguageHint: "Sistem tepsisi menüsü bu dili takip eder.",
     shortcutTitle: "Yakalama kısayolu",
-    shortcutDescription: "Tam ekran seçim overlay'ini açan global kısayolu kaydet.",
+    shortcutDescription: "Tam ekran yakalamayı açan genel kısayolu kaydet.",
     recording: "Kaydediliyor...",
     invalidShortcut: "Geçersiz kısayol",
     reset: "Sıfırla",
     saveShortcut: "Kısayolu kaydet",
     outputTitle: "Çıktı",
     outputDescription: "Ekran görüntüsü kaydedildikten hemen sonra ne olacağını seç.",
-    clipboard: "Pano",
-    copyImage: "Resmi kopyala",
-    copyPath: "Path'i kopyala",
-    off: "Kapalı",
+    clipboard: "Yakalama sonrası pano",
+    clipboardHint: "AtrisShot'ın yakalama sonrasında mevcut pano içeriğini değiştirip değiştirmeyeceğini seç.",
+    copyImage: "Görüntüyü kopyala",
+    copyPath: "Dosya yolunu kopyala",
+    off: "Panoyu değiştirme",
     afterCapture: "Yakalama sonrası",
-    cornerOverlay: "Köşe overlay'i",
+    cornerOverlay: "Hızlı önizlemeyi göster",
     openEditor: "Editörü aç",
     saveSilently: "Sessiz kaydet",
-    overlayTitle: "Sonuç overlay'i",
-    overlayDescription: "Sonuç önizlemesini çalışmanı bölmeyecek konuma yerleştir.",
+    overlayTitle: "Hızlı önizleme",
+    overlayDescription: "Son çekimlerin nasıl görüneceğini ve panelin nasıl geri çağrılacağını seç.",
+    overlayVisibility: "Görünürlük",
+    edgeAutoHide: "Kenara daralt",
+    alwaysVisible: "Açık tut",
+    shortcutOnly: "Yalnız kısayolla göster",
+    overlayShortcutTitle: "Hızlı önizleme kısayolu",
+    overlayShortcutDescription: "Son çekimler panelini her yerden açıp kapat.",
+    saveOverlayShortcut: "Önizleme kısayolunu kaydet",
     position: "Konum",
     bottomLeft: "Sol alt",
     bottomRight: "Sağ alt",
@@ -158,12 +190,12 @@ const copy = {
     captureDelay: "Yakalama gecikmesi (ms)",
     historyLimit: "Geçmiş limiti",
     cursorTitle: "İmleç yakalama",
-    cursorUnavailable: "Mevcut native yakalama altyapısı imleci henüz dahil etmiyor.",
+    cursorUnavailable: "Mevcut yerel yakalama altyapısı imleci henüz dahil etmiyor.",
     unavailable: "Kullanılamıyor",
     advancedTitle: "Gelişmiş",
     advancedDescription: "Bu cihazdaki uygulama veri alanında tutulan AtrisShot verilerini kaldır.",
     removeLocalDataTitle: "Yerel verileri kaldır",
-    removeLocalDataDescription: "Yerel geçmişi, varsayılan ekran görüntüsü cache'ini, thumbnail'leri, kayıtlı uygulama ayarlarını ve saklanan oturumu siler. Özel kaydetme klasöründeki ekran görüntüleri silinmez.",
+    removeLocalDataDescription: "Yerel geçmişi, varsayılan ekran görüntüsü önbelleğini, küçük önizlemeleri, kayıtlı uygulama ayarlarını ve saklanan oturumu siler. Özel kaydetme klasöründeki ekran görüntüleri silinmez.",
     removeLocalDataConfirmLabel: `Onaylamak için ${LOCAL_DATA_CONFIRMATION} yaz`,
     removeLocalDataConfirmPlaceholder: LOCAL_DATA_CONFIRMATION,
     removeLocalData: "Yerel verileri kaldır",
@@ -184,6 +216,7 @@ export function SettingsPanel({
   const text = copy[locale];
   const [settings, setSettings] = useState<ShotSettings>(DEFAULT_SHOT_SETTINGS);
   const [shortcutDraft, setShortcutDraft] = useState(DEFAULT_SHOT_SETTINGS.shortcut);
+  const [overlayShortcutDraft, setOverlayShortcutDraft] = useState(DEFAULT_SHOT_SETTINGS.overlayShortcut);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState("");
   const [message, setMessage] = useState("");
@@ -196,6 +229,7 @@ export function SettingsPanel({
         const next = { ...value, saveFolder: stripWindowsVerbatimPath(value.saveFolder) };
         setSettings(next);
         setShortcutDraft(next.shortcut);
+        setOverlayShortcutDraft(next.overlayShortcut);
         onSettingsChanged(next);
       })
       .catch((reason) => setError(String(reason)))
@@ -231,6 +265,27 @@ export function SettingsPanel({
       await saveDesktopSettings(next);
       setSettings(next);
       setShortcutDraft(canonical);
+      onSettingsChanged(next);
+      setMessage(text.shortcutUpdated);
+    } catch (reason) {
+      setError(`${text.shortcutError} ${String(reason)}`);
+    } finally {
+      setSaving("");
+    }
+  };
+
+  const saveOverlayShortcut = async () => {
+    setSaving("overlayShortcut");
+    setMessage("");
+    setError("");
+    try {
+      const canonical = isNativeRuntime()
+        ? await nativeRuntime.saveOverlayShortcut(overlayShortcutDraft, settings.overlayShortcut)
+        : overlayShortcutDraft;
+      const next = { ...settings, overlayShortcut: canonical };
+      await saveDesktopSettings(next);
+      setSettings(next);
+      setOverlayShortcutDraft(canonical);
       onSettingsChanged(next);
       setMessage(text.shortcutUpdated);
     } catch (reason) {
@@ -340,20 +395,49 @@ export function SettingsPanel({
     );
   }
 
+  const sections = [
+    { id: "settings-general", label: text.generalSection, icon: Palette },
+    { id: "settings-capture", label: text.captureSection, icon: Keyboard },
+    { id: "settings-preview", label: text.previewSection, icon: LayoutPanelTop },
+    { id: "settings-storage", label: text.storageSection, icon: FolderOpen },
+    { id: "settings-advanced", label: text.advancedSection, icon: AlertTriangle },
+  ];
+
   return (
-    <div className="mx-auto max-w-4xl space-y-6 p-6">
-      <div>
-        <h2 className="text-2xl font-semibold tracking-tight">{text.title}</h2>
-        <p className="mt-1 text-sm text-muted-foreground">{text.description}</p>
+    <div className="mx-auto max-w-6xl p-6">
+      <div className="mb-6 flex items-start justify-between gap-4">
+        <div>
+          <h2 className="text-2xl font-semibold tracking-tight">{text.title}</h2>
+          <p className="mt-1 text-sm text-muted-foreground">{text.description}</p>
+        </div>
+        <div className="min-h-7 rounded-full border bg-card px-3 py-1 text-xs text-muted-foreground" role="status" aria-live="polite">
+          {saving ? text.savingStatus : error ? text.failedStatus : message ? text.savedStatus : "\u00a0"}
+        </div>
       </div>
 
-      {(error || message) && (
-        <p className={`rounded-lg border px-3 py-2 text-sm ${error ? "border-destructive/30 bg-destructive/10 text-destructive" : "bg-muted text-foreground"}`}>
-          {error || message}
+      {error && (
+        <p className="mb-5 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive" role="alert">
+          {error}
         </p>
       )}
 
-      <Card>
+      <div className="grid items-start gap-6 lg:grid-cols-[190px_minmax(0,1fr)]">
+        <nav className="sticky top-4 hidden rounded-xl border bg-card/70 p-2 lg:block" aria-label={text.title}>
+          {sections.map(({ id, label, icon: Icon }) => (
+            <button
+              key={id}
+              type="button"
+              className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-muted-foreground transition hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              onClick={() => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" })}
+            >
+              <Icon className="h-4 w-4" />
+              {label}
+            </button>
+          ))}
+        </nav>
+
+        <div className="min-w-0 space-y-5">
+      <Card id="settings-general" className="scroll-mt-4">
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><Palette className="h-4 w-4" />{text.appearanceTitle}</CardTitle>
           <CardDescription>{text.appearanceDescription}</CardDescription>
@@ -385,7 +469,7 @@ export function SettingsPanel({
         </CardContent>
       </Card>
 
-      <Card>
+      <Card id="settings-capture" className="scroll-mt-4">
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><Keyboard className="h-4 w-4" />{text.shortcutTitle}</CardTitle>
           <CardDescription>{text.shortcutDescription}</CardDescription>
@@ -416,12 +500,13 @@ export function SettingsPanel({
             label={text.clipboard}
             value={settings.clipboardMode}
             options={[
+              ["off", text.off],
               ["image", text.copyImage],
               ["path", text.copyPath],
-              ["off", text.off],
             ]}
             onChange={(value) => void persist({ ...settings, clipboardMode: value as ClipboardMode }, "clipboardMode")}
           />
+          <p className="-mt-3 text-xs leading-5 text-muted-foreground">{text.clipboardHint}</p>
           <ChoiceGroup
             label={text.afterCapture}
             value={settings.postCaptureAction}
@@ -435,12 +520,22 @@ export function SettingsPanel({
         </CardContent>
       </Card>
 
-      <Card>
+      <Card id="settings-preview" className="scroll-mt-4">
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><LayoutPanelTop className="h-4 w-4" />{text.overlayTitle}</CardTitle>
           <CardDescription>{text.overlayDescription}</CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-5">
+          <ChoiceGroup
+            label={text.overlayVisibility}
+            value={settings.overlayVisibilityMode}
+            options={[
+              ["edge-auto-hide", text.edgeAutoHide],
+              ["always-visible", text.alwaysVisible],
+              ["shortcut-only", text.shortcutOnly],
+            ]}
+            onChange={(value) => void persist({ ...settings, overlayVisibilityMode: value as OverlayVisibilityMode }, "overlayVisibilityMode")}
+          />
           <ChoiceGroup
             label={text.position}
             value={settings.overlayCorner}
@@ -452,10 +547,30 @@ export function SettingsPanel({
             ]}
             onChange={(value) => void persist({ ...settings, overlayCorner: value as OverlayCorner }, "overlayCorner")}
           />
+          <div className="rounded-lg border bg-muted/20 p-3">
+            <div className="mb-3">
+              <p className="text-sm font-medium">{text.overlayShortcutTitle}</p>
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">{text.overlayShortcutDescription}</p>
+            </div>
+            <div className="flex flex-col gap-3 sm:flex-row">
+              <ShortcutRecorder
+                value={overlayShortcutDraft}
+                defaultValue={DEFAULT_SHOT_SETTINGS.overlayShortcut}
+                disabled={Boolean(saving)}
+                recordingLabel={text.recording}
+                invalidLabel={text.invalidShortcut}
+                resetLabel={text.reset}
+                onChange={setOverlayShortcutDraft}
+              />
+              <Button variant="outline" disabled={saving === "overlayShortcut" || overlayShortcutDraft === settings.overlayShortcut} onClick={() => void saveOverlayShortcut()}>
+                {saving === "overlayShortcut" && <LoaderCircle className="h-4 w-4 animate-spin" />} {text.saveOverlayShortcut}
+              </Button>
+            </div>
+          </div>
         </CardContent>
       </Card>
 
-      <Card>
+      <Card id="settings-storage" className="scroll-mt-4">
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><FolderOpen className="h-4 w-4" />{text.storageTitle}</CardTitle>
           <CardDescription>{text.storageDescription}</CardDescription>
@@ -512,7 +627,7 @@ export function SettingsPanel({
         </CardContent>
       </Card>
 
-      <Card className="border-destructive/30">
+      <Card id="settings-advanced" className="scroll-mt-4 border-destructive/30">
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><AlertTriangle className="h-4 w-4 text-destructive" />{text.advancedTitle}</CardTitle>
           <CardDescription>{text.advancedDescription}</CardDescription>
@@ -560,6 +675,8 @@ export function SettingsPanel({
           </div>
         </CardContent>
       </Card>
+        </div>
+      </div>
     </div>
   );
 }

@@ -1,6 +1,7 @@
 export type ClipboardMode = "image" | "path" | "off";
 export type PostCaptureAction = "corner-overlay" | "open-editor" | "save-silently";
 export type OverlayCorner = "bottom-left" | "bottom-right" | "top-left" | "top-right";
+export type OverlayVisibilityMode = "edge-auto-hide" | "always-visible" | "shortcut-only";
 export type CaptureMode = "display" | "region" | "window";
 
 export interface ShotSettings {
@@ -9,6 +10,8 @@ export interface ShotSettings {
   clipboardMode: ClipboardMode;
   postCaptureAction: PostCaptureAction;
   overlayCorner: OverlayCorner;
+  overlayVisibilityMode: OverlayVisibilityMode;
+  overlayShortcut: string;
   includeCursor: boolean;
   captureDelayMs: number;
   historyLimit: number;
@@ -96,9 +99,11 @@ export interface PublicHealthResponse {
 export const DEFAULT_SHOT_SETTINGS: ShotSettings = {
   shortcut: "Ctrl+Shift+S",
   saveFolder: "",
-  clipboardMode: "image",
+  clipboardMode: "off",
   postCaptureAction: "corner-overlay",
   overlayCorner: "bottom-left",
+  overlayVisibilityMode: "edge-auto-hide",
+  overlayShortcut: "Ctrl+Shift+O",
   includeCursor: false,
   captureDelayMs: 0,
   historyLimit: 100,

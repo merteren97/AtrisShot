@@ -13,6 +13,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@crabnebula/tauri-plugin-drag": "^2.1.0",
     "@atris-shot/api-contracts": "0.1.0",
     "@atris-shot/shot-core": "0.1.0",
     "@tauri-apps/api": "^2.11.0",

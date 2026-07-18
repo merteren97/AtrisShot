@@ -23,6 +23,7 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 mod auth;
 
 const DEFAULT_SHORTCUT: &str = "Ctrl+Shift+S";
+const DEFAULT_OVERLAY_SHORTCUT: &str = "Ctrl+Shift+O";
 
 #[derive(Clone, Default)]
 struct ShotStore {
@@ -106,6 +107,12 @@ struct CaptureResult {
     copied_path: bool,
 }
 
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CaptureUnavailable {
+    code: String,
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct AnnotationPoint {
@@ -173,21 +180,35 @@ fn normalized_history_limit(limit: Option<usize>) -> usize {
     limit.unwrap_or(100).clamp(10, 500)
 }
 
-fn shortcut_from_settings_json(contents: &str) -> Option<String> {
+fn shortcut_value_from_settings_json(contents: &str, key: &str) -> Option<String> {
     let value: serde_json::Value = serde_json::from_str(contents).ok()?;
     value
         .get("shotSettings")
-        .and_then(|settings| settings.get("shortcut"))
+        .and_then(|settings| settings.get(key))
         .and_then(|shortcut| shortcut.as_str())
         .map(str::trim)
         .filter(|shortcut| !shortcut.is_empty())
         .map(ToOwned::to_owned)
 }
 
+fn shortcut_from_settings_json(contents: &str) -> Option<String> {
+    shortcut_value_from_settings_json(contents, "shortcut")
+}
+
+fn overlay_shortcut_from_settings_json(contents: &str) -> Option<String> {
+    shortcut_value_from_settings_json(contents, "overlayShortcut")
+}
+
 fn shortcut_from_settings_file(path: &Path) -> Option<String> {
     fs::read_to_string(path)
         .ok()
         .and_then(|contents| shortcut_from_settings_json(&contents))
+}
+
+fn overlay_shortcut_from_settings_file(path: &Path) -> Option<String> {
+    fs::read_to_string(path)
+        .ok()
+        .and_then(|contents| overlay_shortcut_from_settings_json(&contents))
 }
 
 fn validate_custom_save_folder(folder: &str) -> Result<PathBuf, String> {
@@ -297,36 +318,34 @@ fn persist_history(app: &AppHandle, entries: &[ShotHistoryEntry]) -> Result<(), 
     .map_err(|error| error.to_string())
 }
 
-fn displays(app: &AppHandle) -> Vec<DisplayInfo> {
-    let primary_name = app.primary_monitor().ok().flatten().map(|monitor| {
-        monitor
-            .name()
-            .cloned()
-            .unwrap_or_else(|| "Primary".to_string())
-    });
-    app.available_monitors()
-        .unwrap_or_default()
+fn capturable_screens() -> Result<Vec<Screen>, String> {
+    Screen::all().map_err(|error| error.to_string())
+}
+
+fn displays() -> Result<Vec<DisplayInfo>, String> {
+    let screens = capturable_screens()
+        .map_err(|error| format!("No capturable display is available: {error}"))?;
+    if screens.is_empty() {
+        return Err("No capturable display is available.".to_string());
+    }
+    let has_primary = screens.iter().any(|screen| screen.display_info.is_primary);
+    Ok(screens
         .into_iter()
         .enumerate()
-        .map(|(index, monitor)| {
-            let position = monitor.position();
-            let size = monitor.size();
-            let name = monitor
-                .name()
-                .cloned()
-                .unwrap_or_else(|| format!("Display {}", index + 1));
+        .map(|(index, screen)| {
+            let info = screen.display_info;
             DisplayInfo {
-                id: format!("display-{index}"),
-                primary: primary_name.as_deref() == Some(name.as_str()) || index == 0,
-                name,
-                x: position.x,
-                y: position.y,
-                width: size.width,
-                height: size.height,
-                scale_factor: monitor.scale_factor(),
+                id: format!("capture-{}", info.id),
+                primary: info.is_primary || (!has_primary && index == 0),
+                name: format!("Display {}", index + 1),
+                x: info.x,
+                y: info.y,
+                width: info.width,
+                height: info.height,
+                scale_factor: f64::from(info.scale_factor),
             }
         })
-        .collect()
+        .collect())
 }
 
 fn path_is_inside(path: &Path, root: &Path) -> bool {
@@ -356,7 +375,7 @@ fn virtual_display_bounds(displays: &[DisplayInfo]) -> Option<(i32, i32, u32, u3
 }
 
 fn capture_virtual_region(region: &CaptureRegion) -> Result<RgbaImage, String> {
-    let screens = Screen::all().map_err(|error| error.to_string())?;
+    let screens = capturable_screens()?;
     let mut output = RgbaImage::from_pixel(
         region.width.max(1),
         region.height.max(1),
@@ -1087,8 +1106,8 @@ fn write_thumbnail(image_path: &Path, id: &str) -> Result<PathBuf, String> {
 }
 
 #[tauri::command]
-fn list_displays(app: AppHandle) -> Vec<DisplayInfo> {
-    displays(&app)
+fn list_displays(_app: AppHandle) -> Vec<DisplayInfo> {
+    displays().unwrap_or_default()
 }
 
 #[tauri::command]
@@ -1114,7 +1133,7 @@ fn capture_shot(
     request: CaptureRequest,
 ) -> Result<CaptureResult, String> {
     access.require_access()?;
-    let all_displays = displays(&app);
+    let all_displays = displays()?;
     let requested_display = request
         .display_id
         .as_ref()
@@ -1198,9 +1217,21 @@ fn capture_shot(
 
     let image_result = capture_virtual_region(&captured_region);
     restore_internal_windows_after_capture(&app);
-    let image = image_result?;
+    let image = match image_result {
+        Ok(image) => image,
+        Err(error) => {
+            let _ = app.emit(
+                "capture-unavailable",
+                CaptureUnavailable {
+                    code: "capture-failed".to_string(),
+                },
+            );
+            restore_main_window(&app);
+            return Err(error);
+        }
+    };
     image.save(&path).map_err(|error| error.to_string())?;
-    let clipboard_mode = request.clipboard_mode.as_deref().unwrap_or("image");
+    let clipboard_mode = request.clipboard_mode.as_deref().unwrap_or("off");
     let mut copied_image = false;
     let mut copied_path = false;
     if clipboard_mode == "image" {
@@ -1392,6 +1423,29 @@ fn copy_shot_path(path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn copy_shot_image(app: AppHandle, store: State<'_, ShotStore>, id: String) -> Result<(), String> {
+    let mut entries = store
+        .entries
+        .lock()
+        .map_err(|_| "Shot history state is unavailable.".to_string())?;
+    if entries.is_empty() {
+        *entries = load_history_from_disk(&app);
+    }
+    let entry = entries
+        .iter()
+        .find(|entry| entry.id == id)
+        .cloned()
+        .ok_or_else(|| "Screenshot was not found in local history.".to_string())?;
+    drop(entries);
+
+    let path = entry.edited_path.as_ref().unwrap_or(&entry.original_path);
+    let image = image::open(existing_path_from_user_input(path)?)
+        .map_err(|error| error.to_string())?
+        .to_rgba8();
+    copy_image_to_clipboard(image.width(), image.height(), image.into_raw())
+}
+
+#[tauri::command]
 fn path_exists(path: String) -> bool {
     path_from_user_input(&path)
         .map(|path| path.is_file())
@@ -1468,6 +1522,24 @@ fn register_capture_shortcut(app: &AppHandle, shortcut: &str) -> Result<String, 
     Ok(shortcut.to_string())
 }
 
+fn register_overlay_shortcut(app: &AppHandle, shortcut: &str) -> Result<String, String> {
+    let parsed: Shortcut = shortcut
+        .parse()
+        .map_err(|error| format!("Invalid shortcut: {error}"))?;
+    app.global_shortcut()
+        .on_shortcut(parsed, |app, _shortcut, event| {
+            if event.state() == ShortcutState::Pressed {
+                toggle_overlay(app.clone(), None);
+            }
+        })
+        .map_err(|error| format!("Shortcut is unavailable: {error}"))?;
+    Ok(shortcut.to_string())
+}
+
+fn shortcuts_conflict(left: &str, right: &str) -> bool {
+    left.trim().eq_ignore_ascii_case(right.trim())
+}
+
 #[tauri::command]
 fn save_shortcut(
     app: AppHandle,
@@ -1480,7 +1552,47 @@ fn save_shortcut(
     if previous_shortcut.as_deref() == Some(shortcut.as_str()) {
         return Ok(shortcut);
     }
+    let overlay_shortcut = settings_path(&app)
+        .ok()
+        .and_then(|path| overlay_shortcut_from_settings_file(&path))
+        .unwrap_or_else(|| DEFAULT_OVERLAY_SHORTCUT.to_string());
+    if shortcuts_conflict(&shortcut, &overlay_shortcut) {
+        return Err("Capture and overlay shortcuts must be different.".to_string());
+    }
     register_capture_shortcut(&app, &shortcut)?;
+
+    if let Some(previous) = previous_shortcut {
+        if let Ok(previous_parsed) = previous.parse::<Shortcut>() {
+            if let Err(error) = app.global_shortcut().unregister(previous_parsed) {
+                let _ = app.global_shortcut().unregister(parsed);
+                return Err(format!("Previous shortcut could not be replaced: {error}"));
+            }
+        }
+    }
+
+    Ok(shortcut)
+}
+
+#[tauri::command]
+fn save_overlay_shortcut(
+    app: AppHandle,
+    shortcut: String,
+    previous_shortcut: Option<String>,
+) -> Result<String, String> {
+    let parsed: Shortcut = shortcut
+        .parse()
+        .map_err(|error| format!("Invalid shortcut: {error}"))?;
+    if previous_shortcut.as_deref() == Some(shortcut.as_str()) {
+        return Ok(shortcut);
+    }
+    let capture_shortcut = settings_path(&app)
+        .ok()
+        .and_then(|path| shortcut_from_settings_file(&path))
+        .unwrap_or_else(|| DEFAULT_SHORTCUT.to_string());
+    if shortcuts_conflict(&shortcut, &capture_shortcut) {
+        return Err("Capture and overlay shortcuts must be different.".to_string());
+    }
+    register_overlay_shortcut(&app, &shortcut)?;
 
     if let Some(previous) = previous_shortcut {
         if let Ok(previous_parsed) = previous.parse::<Shortcut>() {
@@ -1538,20 +1650,100 @@ fn position_overlay_window(app: &AppHandle, corner: &str) {
     }
 }
 
+fn position_overlay_edge_window(app: &AppHandle, corner: &str) {
+    let Some(window) = app.get_webview_window("overlay") else {
+        return;
+    };
+    let monitor = window
+        .current_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| app.primary_monitor().ok().flatten());
+    if let (Some(monitor), Ok(size)) = (monitor, window.outer_size()) {
+        let monitor_position = monitor.position();
+        let monitor_size = monitor.size();
+        let right = monitor_position.x + monitor_size.width.saturating_sub(size.width) as i32;
+        let bottom = monitor_position.y
+            + monitor_size
+                .height
+                .saturating_sub(size.height.saturating_add(72)) as i32;
+        let position = match corner {
+            "bottom-right" => PhysicalPosition {
+                x: right,
+                y: bottom,
+            },
+            "top-left" => PhysicalPosition {
+                x: monitor_position.x,
+                y: monitor_position.y + 24,
+            },
+            "top-right" => PhysicalPosition {
+                x: right,
+                y: monitor_position.y + 24,
+            },
+            _ => PhysicalPosition {
+                x: monitor_position.x,
+                y: bottom,
+            },
+        };
+        let _ = window.set_position(Position::Physical(position));
+    }
+}
+
+fn overlay_max_height(app: &AppHandle) -> u32 {
+    app.primary_monitor()
+        .ok()
+        .flatten()
+        .map(|monitor| monitor.size().height.saturating_sub(96).max(176))
+        .or_else(|| {
+            displays().ok().and_then(|items| {
+                items
+                    .iter()
+                    .find(|display| display.primary)
+                    .or_else(|| items.first())
+                    .map(|display| display.height.saturating_sub(96).max(176))
+            })
+        })
+        .unwrap_or(720)
+}
+
 #[tauri::command]
-fn set_overlay_stack_size(app: AppHandle, item_count: u32, overlay_corner: Option<String>) {
-    if item_count == 0 {
-        hide_overlay(app);
+fn set_overlay_presentation(
+    app: AppHandle,
+    item_count: u32,
+    state: String,
+    overlay_corner: Option<String>,
+) {
+    let Some(window) = app.get_webview_window("overlay") else {
+        return;
+    };
+    if state == "hidden" || item_count == 0 {
+        let _ = window.hide();
         return;
     }
-    let item_count = item_count.clamp(1, 5);
-    let height = 16 + (item_count * 112) + (item_count.saturating_sub(1) * 8);
-    if let Some(window) = app.get_webview_window("overlay") {
-        let _ = window.set_size(Size::Logical(LogicalSize::new(440.0, f64::from(height))));
+
+    let (width, height) = if state == "collapsed" {
+        (12.0, 64.0)
+    } else {
+        let item_count = item_count.clamp(1, 5);
+        let desired_height = 16 + (item_count * 160) + (item_count.saturating_sub(1) * 12);
+        (
+            304.0,
+            f64::from(desired_height.min(overlay_max_height(&app))),
+        )
+    };
+    let _ = window.set_size(Size::Logical(LogicalSize::new(width, height)));
+    if state == "collapsed" {
+        position_overlay_edge_window(&app, overlay_corner.as_deref().unwrap_or("bottom-left"));
+    } else {
         position_overlay_window(&app, overlay_corner.as_deref().unwrap_or("bottom-left"));
-        let _ = window.set_always_on_top(true);
-        let _ = window.show();
     }
+    let _ = window.set_always_on_top(true);
+    let _ = window.show();
+}
+
+#[tauri::command]
+fn set_overlay_stack_size(app: AppHandle, item_count: u32, overlay_corner: Option<String>) {
+    set_overlay_presentation(app, item_count, "expanded".to_string(), overlay_corner);
 }
 
 #[tauri::command]
@@ -1573,19 +1765,81 @@ fn hide_overlay(app: AppHandle) {
 }
 
 #[tauri::command]
-fn show_capture_overlay(app: AppHandle) {
-    if let Some(window) = app.get_webview_window("capture") {
-        configure_capture_exclusion(&app);
-        hide_internal_windows_for_capture(&app);
-        let display_list = displays(&app);
-        if let Some((x, y, width, height)) = virtual_display_bounds(&display_list) {
-            let _ = window.set_position(Position::Physical(PhysicalPosition { x, y }));
-            let _ = window.set_size(Size::Physical(PhysicalSize { width, height }));
+fn toggle_overlay(app: AppHandle, overlay_corner: Option<String>) {
+    configure_capture_exclusion(&app);
+    if let Some(window) = app.get_webview_window("overlay") {
+        if !window.is_visible().unwrap_or(false) {
+            position_overlay_window(&app, overlay_corner.as_deref().unwrap_or("bottom-left"));
+            let _ = window.set_always_on_top(true);
+            let _ = window.show();
         }
-        let _ = window.set_always_on_top(true);
+        let _ = app.emit("result-overlay-toggle-requested", ());
+    }
+}
+
+fn restore_main_window(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.unminimize();
         let _ = window.show();
+        ensure_window_on_screen(&window);
         let _ = window.set_focus();
-        let _ = app.emit("capture-overlay-opened", ());
+    }
+}
+
+fn report_capture_unavailable(app: &AppHandle, code: &str) {
+    restore_internal_windows_after_capture(app);
+    restore_main_window(app);
+    let _ = app.emit(
+        "capture-unavailable",
+        CaptureUnavailable {
+            code: code.to_string(),
+        },
+    );
+}
+
+fn try_show_capture_overlay(app: &AppHandle) -> Result<(), String> {
+    let display_list = displays()?;
+    let (x, y, width, height) = virtual_display_bounds(&display_list)
+        .ok_or_else(|| "No capturable display is available.".to_string())?;
+    let window = app
+        .get_webview_window("capture")
+        .ok_or_else(|| "Capture overlay window is unavailable.".to_string())?;
+
+    configure_capture_exclusion(app);
+    window
+        .set_position(Position::Physical(PhysicalPosition { x, y }))
+        .map_err(|error| error.to_string())?;
+    window
+        .set_size(Size::Physical(PhysicalSize { width, height }))
+        .map_err(|error| error.to_string())?;
+    window
+        .set_always_on_top(true)
+        .map_err(|error| error.to_string())?;
+
+    hide_internal_windows_for_capture(app);
+    if let Err(error) = window.show() {
+        restore_internal_windows_after_capture(app);
+        return Err(error.to_string());
+    }
+    if let Err(error) = window.set_focus() {
+        let _ = window.hide();
+        restore_internal_windows_after_capture(app);
+        return Err(error.to_string());
+    }
+    let _ = app.emit("capture-overlay-opened", ());
+    Ok(())
+}
+
+#[tauri::command]
+fn show_capture_overlay(app: AppHandle) {
+    if let Err(error) = try_show_capture_overlay(&app) {
+        let code = if error.contains("No capturable display") {
+            "no-display"
+        } else {
+            "overlay-unavailable"
+        };
+        eprintln!("AtrisShot capture overlay could not be shown: {error}");
+        report_capture_unavailable(&app, code);
     }
 }
 
@@ -1603,9 +1857,38 @@ fn hide_capture_overlay_window(app: &AppHandle) {
 
 #[tauri::command]
 fn open_main_window(app: AppHandle) {
-    if let Some(window) = app.get_webview_window("main") {
-        let _ = window.show();
-        let _ = window.set_focus();
+    restore_main_window(&app);
+}
+
+fn ensure_window_on_screen(window: &tauri::WebviewWindow) {
+    let Ok(position) = window.outer_position() else {
+        return;
+    };
+    let Ok(size) = window.outer_size() else {
+        return;
+    };
+    let Ok(display_list) = displays() else {
+        return;
+    };
+    let right = position.x.saturating_add(size.width as i32);
+    let bottom = position.y.saturating_add(size.height as i32);
+    let intersects = display_list.iter().any(|display| {
+        right > display.x
+            && position.x < display.x.saturating_add(display.width as i32)
+            && bottom > display.y
+            && position.y < display.y.saturating_add(display.height as i32)
+    });
+    if intersects {
+        return;
+    }
+    if let Some(display) = display_list
+        .iter()
+        .find(|display| display.primary)
+        .or_else(|| display_list.first())
+    {
+        let x = display.x + (display.width.saturating_sub(size.width) / 2) as i32;
+        let y = display.y + (display.height.saturating_sub(size.height) / 2) as i32;
+        let _ = window.set_position(Position::Physical(PhysicalPosition { x, y }));
     }
 }
 
@@ -1710,14 +1993,11 @@ fn restart_application(app: AppHandle) {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.unminimize();
-                let _ = window.show();
-                let _ = window.set_focus();
-            }
+            restore_main_window(app);
         }))
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_drag::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -1729,15 +2009,28 @@ pub fn run() {
                 (app.get_webview_window("main"), app.default_window_icon())
             {
                 let _ = window.set_icon(icon.clone());
+                ensure_window_on_screen(&window);
             }
-            let startup_shortcut = settings_path(app.handle())
-                .ok()
-                .and_then(|path| shortcut_from_settings_file(&path))
+            let saved_settings_path = settings_path(app.handle()).ok();
+            let startup_shortcut = saved_settings_path
+                .as_deref()
+                .and_then(shortcut_from_settings_file)
                 .unwrap_or_else(|| DEFAULT_SHORTCUT.to_string());
             if register_capture_shortcut(app.handle(), &startup_shortcut).is_err()
                 && startup_shortcut != DEFAULT_SHORTCUT
             {
                 let _ = register_capture_shortcut(app.handle(), DEFAULT_SHORTCUT);
+            }
+            let overlay_shortcut = saved_settings_path
+                .as_deref()
+                .and_then(overlay_shortcut_from_settings_file)
+                .unwrap_or_else(|| DEFAULT_OVERLAY_SHORTCUT.to_string());
+            if !shortcuts_conflict(&startup_shortcut, &overlay_shortcut)
+                && register_overlay_shortcut(app.handle(), &overlay_shortcut).is_err()
+                && overlay_shortcut != DEFAULT_OVERLAY_SHORTCUT
+                && !shortcuts_conflict(&startup_shortcut, DEFAULT_OVERLAY_SHORTCUT)
+            {
+                let _ = register_overlay_shortcut(app.handle(), DEFAULT_OVERLAY_SHORTCUT);
             }
 
             if let Some(icon) = app.default_window_icon() {
@@ -1747,15 +2040,12 @@ pub fn run() {
                     .show_menu_on_left_click(false)
                     .on_menu_event(|app, event| match event.id().as_ref() {
                         "open" => {
-                            if let Some(window) = app.get_webview_window("main") {
-                                let _ = window.show();
-                                let _ = window.set_focus();
-                            }
+                            restore_main_window(app);
                         }
                         "capture" => {
                             show_capture_overlay(app.clone());
                         }
-                        "overlay" => show_overlay(app.clone(), None),
+                        "overlay" => toggle_overlay(app.clone(), None),
                         "quit" => app.exit(0),
                         _ => {}
                     })
@@ -1766,10 +2056,7 @@ pub fn run() {
                             ..
                         } = event
                         {
-                            if let Some(window) = tray.app_handle().get_webview_window("main") {
-                                let _ = window.show();
-                                let _ = window.set_focus();
-                            }
+                            restore_main_window(tray.app_handle());
                         }
                     })
                     .icon(icon.clone());
@@ -1799,6 +2086,7 @@ pub fn run() {
             apply_annotations,
             reveal_shot,
             copy_shot_path,
+            copy_shot_image,
             path_exists,
             window_target_at_cursor,
             read_shot_data_url,
@@ -1806,9 +2094,12 @@ pub fn run() {
             validate_save_folder,
             open_storage_folder,
             save_shortcut,
+            save_overlay_shortcut,
             show_overlay,
             set_overlay_stack_size,
+            set_overlay_presentation,
             hide_overlay,
+            toggle_overlay,
             show_capture_overlay,
             hide_capture_overlay,
             open_main_window,
@@ -1877,6 +2168,7 @@ mod tests {
             virtual_display_bounds(&displays),
             Some((-1280, 0, 3200, 1144))
         );
+        assert_eq!(virtual_display_bounds(&[]), None);
     }
 
     #[test]
@@ -1884,12 +2176,17 @@ mod tests {
         let settings = r#"{
             "shotSettings": {
                 "shortcut": "Ctrl+Alt+S",
+                "overlayShortcut": "Ctrl+Shift+O",
                 "clipboardMode": "image"
             }
         }"#;
         assert_eq!(
             shortcut_from_settings_json(settings),
             Some("Ctrl+Alt+S".to_string())
+        );
+        assert_eq!(
+            overlay_shortcut_from_settings_json(settings),
+            Some("Ctrl+Shift+O".to_string())
         );
         assert_eq!(
             shortcut_from_settings_json(r#"{"shotSettings":{"shortcut":"   "}}"#),
@@ -1899,6 +2196,12 @@ mod tests {
             shortcut_from_settings_json(r#"{"other":{"shortcut":"Ctrl+Alt+S"}}"#),
             None
         );
+    }
+
+    #[test]
+    fn shortcut_conflict_check_is_trimmed_and_case_insensitive() {
+        assert!(shortcuts_conflict("Ctrl+Shift+O", " ctrl+shift+o "));
+        assert!(!shortcuts_conflict("Ctrl+Shift+S", "Ctrl+Shift+O"));
     }
 
     #[test]

@@ -9,6 +9,7 @@ import {
   ExternalLink,
   FolderOpen,
   Image,
+  ListChecks,
   LogOut,
   MoreHorizontal,
   Settings,
@@ -39,6 +40,10 @@ const workspaceCopy = {
     editedSaved: "Edited screenshot saved",
     saved: "Screenshot saved",
     fileMissing: "Local file missing",
+    missingBadge: "Missing",
+    noDisplay: "No capturable screen is available. AtrisShot kept the main window open.",
+    overlayUnavailable: "The capture panel could not be opened. Try reconnecting the remote desktop session.",
+    captureFailed: "Screen capture failed. The application window was restored.",
     packagedOnly: "Open the packaged app to use this action.",
     editorOpened: "Editor opened",
     removed: "Screenshot removed",
@@ -65,7 +70,7 @@ const workspaceCopy = {
     mode: "Mode",
     annotations: "Annotations",
     savedFile: "Saved file",
-    dragHint: "Drag the result overlay to place the saved path into text fields, or open the editor for markup.",
+    dragHint: "Drag the quick preview into another app as a PNG file, or use the editor for markup.",
     readyTitle: "AtrisShot is ready",
     readyDescription: "Capture with your shortcut, then edit, copy, reveal, and manage recent screenshots from this screen.",
     missingDescription: "This history record exists, but the screenshot file is no longer available on this device.",
@@ -91,6 +96,10 @@ const workspaceCopy = {
     editedSaved: "Düzenlenen ekran görüntüsü kaydedildi",
     saved: "Ekran görüntüsü kaydedildi",
     fileMissing: "Yerel dosya eksik",
+    missingBadge: "Eksik",
+    noDisplay: "Yakalanabilir ekran bulunamadı. AtrisShot ana pencereyi açık tuttu.",
+    overlayUnavailable: "Yakalama paneli açılamadı. Uzak masaüstü oturumunu yeniden bağlamayı dene.",
+    captureFailed: "Ekran yakalama başarısız oldu. Uygulama penceresi geri getirildi.",
     packagedOnly: "Bu işlem için paketlenmiş masaüstü uygulamasını aç.",
     editorOpened: "Editör açıldı",
     removed: "Ekran görüntüsü kaldırıldı",
@@ -102,7 +111,7 @@ const workspaceCopy = {
     noScreenshotsDescription: "İlk ekran görüntünü almak için AtrisShot kısayolunu kullan.",
     latest: "Seçili ekran görüntüsü",
     edit: "Düzenle",
-    copyPath: "Path kopyala",
+    copyPath: "Dosya yolunu kopyala",
     reveal: "Klasörde göster",
     delete: "Sil",
     deleteSelected: "Seçilenleri sil",
@@ -117,7 +126,7 @@ const workspaceCopy = {
     mode: "Tür",
     annotations: "İşaretleme",
     savedFile: "Kaydedilen dosya",
-    dragHint: "Kaydedilen path'i metin alanlarına bırakmak için sonuç overlay'ini sürükle veya işaretleme için editörü aç.",
+    dragHint: "Hızlı önizlemeyi başka bir uygulamaya PNG dosyası olarak sürükle veya işaretleme için editörü aç.",
     readyTitle: "AtrisShot hazır",
     readyDescription: "Kısayol ile yakala; sonra bu ekrandan düzenle, kopyala, klasörde göster ve geçmişi yönet.",
     missingDescription: "Bu geçmiş kaydı duruyor, fakat ekran görüntüsü dosyası artık bu cihazda yok.",
@@ -130,52 +139,6 @@ const workspaceCopy = {
     noFile: "Dosya yok",
     offlineGrace: "Çevrimdışı erişim",
     account: "Hesap",
-    openHub: "AtrisHub'ı aç",
-    signOut: "Çıkış yap",
-    accountMenu: "Hesap menüsü",
-    back: "Geçmişe dön",
-  },
-} as const;
-
-const localizedWorkspaceCopy = {
-  ...workspaceCopy,
-  tr: {
-    ...workspaceCopy.tr,
-    settingsSubtitle: "Yakalama, depolama, çıktı ve görünüm",
-    recent: "Son ekran görüntüleri",
-    ready: "Hazır",
-    editedSaved: "Düzenlenen ekran görüntüsü kaydedildi",
-    saved: "Ekran görüntüsü kaydedildi",
-    packagedOnly: "Bu işlem için paketlenmiş masaüstü uygulamasını aç.",
-    editorOpened: "Editör açıldı",
-    removed: "Ekran görüntüsü kaldırıldı",
-    cleared: "Geçmiş temizlendi",
-    localDataRemoved: "Yerel veri kaldırıldı",
-    history: "Geçmiş",
-    localScreenshots: "yerel ekran görüntüsü",
-    noScreenshots: "Henüz ekran görüntüsü yok",
-    noScreenshotsDescription: "İlk ekran görüntünü almak için AtrisShot kısayolunu kullan.",
-    latest: "Seçili ekran görüntüsü",
-    edit: "Düzenle",
-    deleteSelected: "Seçilenleri sil",
-    selectAll: "Tümünü seç",
-    clearSelection: "Seçimi kaldır",
-    deleteSelectedConfirm: "Seçilen {count} ekran görüntüsü ve yerel dosyaları silinsin mi? Bu işlem geri alınamaz.",
-    deleteFailed: "Seçilen ekran görüntüleri silinemedi:",
-    selectedCount: "{count} seçili",
-    selectForDelete: "Silmek için seç",
-    reveal: "Klasörde göster",
-    mode: "Tür",
-    annotations: "İşaretleme",
-    dragHint: "Kaydedilen path'i metin alanlarına bırakmak için sonuç overlay'ini sürükle veya işaretleme için editörü aç.",
-    readyTitle: "AtrisShot hazır",
-    readyDescription: "Kısayol ile yakala; sonra bu ekrandan düzenle, kopyala, klasörde göster ve geçmişi yönet.",
-    missingDescription: "Bu geçmiş kaydı duruyor, fakat ekran görüntüsü dosyası artık bu cihazda yok.",
-    region: "Bölge yakalama",
-    screen: "Ekran",
-    selectedWindow: "Seçili pencere",
-    currentScreen: "Geçerli ekran",
-    offlineGrace: "Çevrimdışı erişim",
     openHub: "AtrisHub'ı aç",
     signOut: "Çıkış yap",
     accountMenu: "Hesap menüsü",
@@ -229,7 +192,7 @@ function ShotImage({
 
 export function ShotWorkspace({ session, onLogout }: { session: ShotSession; onLogout: () => void }) {
   const { locale } = useUiPreferences();
-  const text = localizedWorkspaceCopy[locale];
+  const text = workspaceCopy[locale];
   const accountMenuRef = useRef<HTMLDivElement | null>(null);
   const [settings, setSettings] = useState<ShotSettings>(DEFAULT_SHOT_SETTINGS);
   const [historyEntries, setHistoryEntries] = useState<ShotHistoryEntry[]>([]);
@@ -271,6 +234,7 @@ export function ShotWorkspace({ session, onLogout }: { session: ShotSession; onL
     void refreshHistory();
     if (!isNativeRuntime()) return;
     let unlistenShot: (() => void) | undefined;
+    let unlistenCaptureUnavailable: (() => void) | undefined;
     void nativeRuntime.onShotCaptured((entry) => {
       setHistoryEntries((current) => {
         const next = [entry, ...current.filter((item) => item.id !== entry.id)];
@@ -289,10 +253,17 @@ export function ShotWorkspace({ session, onLogout }: { session: ShotSession; onL
     }).then((dispose) => {
       unlistenShot = dispose;
     });
+    void nativeRuntime.onCaptureUnavailable(({ code }) => {
+      setSettingsOpen(false);
+      setError(code === "no-display" ? text.noDisplay : code === "overlay-unavailable" ? text.overlayUnavailable : text.captureFailed);
+    }).then((dispose) => {
+      unlistenCaptureUnavailable = dispose;
+    });
     return () => {
       unlistenShot?.();
+      unlistenCaptureUnavailable?.();
     };
-  }, [refreshHistory, refreshMissingEntries]);
+  }, [refreshHistory, refreshMissingEntries, text]);
 
   useEffect(() => {
     if (!accountMenuOpen) return;
@@ -492,15 +463,16 @@ function HistoryWorkspace({
           <div className="flex items-center gap-1">
             <Button
               type="button"
-              size="sm"
+              size="icon"
               variant="ghost"
-              className="h-8 px-2 text-xs"
+              className={cn("h-8 w-8", allSelected && "bg-accent text-accent-foreground")}
+              aria-label={allSelected ? text.clearSelection : text.selectAll}
+              title={allSelected ? text.clearSelection : text.selectAll}
               aria-pressed={allSelected}
               disabled={!entries.length}
               onClick={onToggleAll}
             >
-              <Check className="h-3.5 w-3.5" />
-              {allSelected ? text.clearSelection : text.selectAll}
+              <ListChecks className="h-4 w-4" />
             </Button>
             <Button
               type="button"
@@ -555,7 +527,7 @@ function HistoryWorkspace({
                           <span className="block truncate text-sm font-semibold">{cleanDisplayName(entry.displayName, text)}</span>
                           <span className="mt-0.5 block truncate text-xs text-muted-foreground">{formatShotDate(entry.createdAt, entry.id, locale)}</span>
                         </span>
-                        {isMissing && <Badge className="shrink-0 border-destructive/30 bg-destructive/10 text-destructive">Missing</Badge>}
+                        {isMissing && <Badge className="shrink-0 border-destructive/30 bg-destructive/10 text-destructive">{text.missingBadge}</Badge>}
                       </span>
                     </button>
                   </div>
@@ -741,7 +713,7 @@ function formatShotDate(value: string, fallbackId: string | undefined, locale: L
       });
     }
   }
-  return localizedWorkspaceCopy[locale].dateUnavailable;
+  return workspaceCopy[locale].dateUnavailable;
 }
 
 function cleanDisplayName(value: string, text: WorkspaceText = workspaceCopy.en) {

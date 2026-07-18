@@ -30,6 +30,13 @@ const tauriConfig = JSON.parse(
 const tauriCapability = JSON.parse(
   await readFile(new URL("../apps/desktop/src-tauri/capabilities/default.json", import.meta.url), "utf8"),
 );
+const overlayDragCapability = JSON.parse(
+  await readFile(new URL("../apps/desktop/src-tauri/capabilities/overlay-drag.json", import.meta.url), "utf8"),
+);
+const shotCore = await readFile(
+  new URL("../packages/shot-core/src/index.ts", import.meta.url),
+  "utf8",
+);
 
 assert.match(rust, /app_data_dir/);
 assert.match(rust, /Shot path must stay inside the AtrisShot data directory/);
@@ -79,7 +86,12 @@ assert.equal(tauriConfig.app.windows.some((window) => window.label === "editor" 
 assert.equal(tauriCapability.windows.includes("editor"), true);
 assert.equal(tauriCapability.permissions.includes("dialog:allow-open"), true);
 assert.equal(tauriCapability.permissions.includes("dialog:allow-ask"), true);
+assert.deepEqual(overlayDragCapability.windows, ["overlay"]);
+assert.equal(overlayDragCapability.permissions.includes("drag:allow-start-drag"), true);
 assert.match(JSON.stringify(tauriConfig.plugins.updater.endpoints), /shot\.atrishub\.com/);
+assert.match(shotCore, /clipboardMode: "off"/);
+assert.match(shotCore, /overlayVisibilityMode: "edge-auto-hide"/);
+assert.match(shotCore, /overlayShortcut: "Ctrl\+Shift\+O"/);
 
 const publicServer = await readFile(
   new URL("../services/public-server/src/server.ts", import.meta.url),
@@ -170,7 +182,13 @@ assert.match(nativeRuntime, /capture-overlay-opened/);
 assert.match(nativeRuntime, /onResultOverlayOpened/);
 assert.match(nativeRuntime, /result-overlay-opened/);
 assert.match(nativeRuntime, /chooseSaveFolder/);
-assert.match(nativeRuntime, /setOverlayStackSize/);
+assert.match(nativeRuntime, /copyShotImage/);
+assert.match(nativeRuntime, /startShotDrag/);
+assert.match(nativeRuntime, /@crabnebula\/tauri-plugin-drag/);
+assert.match(nativeRuntime, /saveOverlayShortcut/);
+assert.match(nativeRuntime, /setOverlayPresentation/);
+assert.match(nativeRuntime, /onResultOverlayToggleRequested/);
+assert.match(nativeRuntime, /onCaptureUnavailable/);
 assert.match(nativeRuntime, /deleteShots/);
 assert.match(nativeRuntime, /confirmAction/);
 assert.match(nativeRuntime, /@tauri-apps\/plugin-dialog/);
@@ -204,18 +222,28 @@ assert.doesNotMatch(workspace, /function CapturePanel|function EditorPanel/);
 assert.doesNotMatch(workspace, /Capture display|Display layout|click a display/);
 assert.match(resultOverlay, /readShotDataUrl/);
 assert.match(resultOverlay, /previewUrl/);
-assert.match(resultOverlay, /nativeRuntime\s*\.\s*latestShot\(\)/);
+assert.match(resultOverlay, /nativeRuntime\.listShotHistory\(\)/);
+assert.match(resultOverlay, /nativeRuntime\.pathExists/);
 assert.match(resultOverlay, /onResultOverlayOpened/);
 assert.match(resultOverlay, /MAX_OVERLAY_ENTRIES = 5/);
 assert.match(resultOverlay, /upsertOverlayEntry/);
-assert.match(resultOverlay, /setOverlayStackSize\(entries\.length/);
-assert.match(resultOverlay, /onDragEnd=\{onDismiss\}/);
+assert.match(resultOverlay, /h-40 w-72/);
+assert.match(resultOverlay, /flex-col gap-3/);
+assert.match(resultOverlay, /border border-white\/15 bg-black\/90/);
+assert.match(resultOverlay, /object-contain/);
+assert.match(resultOverlay, /setOverlayPresentation\(entries\.length/);
+assert.match(resultOverlay, /startShotDrag\(displayPath, previewUrl\)/);
+assert.match(resultOverlay, /result === "Dropped"/);
+assert.match(resultOverlay, /event\.dataTransfer\.dropEffect !== "none"/);
 assert.match(resultOverlay, /group-hover:opacity-100 group-focus-within:opacity-100/);
 assert.match(resultOverlay, /openEditorWindow\(entry\.id\)/);
 assert.doesNotMatch(resultOverlay, /emitEditShotRequested|openMainWindow/);
-assert.match(resultOverlay, /data-path-drag/);
+assert.match(resultOverlay, /data-shot-drag/);
 assert.match(resultOverlay, /dataTransfer\.setData\("text\/plain", displayPath\)/);
-assert.match(resultOverlay, /closest\("button,\[data-path-drag\]"\)/);
+assert.match(resultOverlay, /closest\("button,\[data-shot-drag\]"\)/);
+assert.match(resultOverlay, /AUTO_HIDE_DELAY_MS = 4_000/);
+assert.match(resultOverlay, /settings\.overlayVisibilityMode === "always-visible"/);
+assert.match(resultOverlay, /settings\.overlayVisibilityMode === "shortcut-only"/);
 assert.match(captureOverlay, /windowTargetAtCursor/);
 assert.match(captureOverlay, /nativeRuntime\.listDisplays\(\)/);
 assert.match(captureOverlay, /displayForRegion/);
@@ -287,16 +315,27 @@ assert.match(rust, /center_window/);
 assert.match(rust, /editor-shot-requested/);
 assert.match(rust, /capture-overlay-opened/);
 assert.match(rust, /configure_capture_exclusion/);
+assert.match(rust, /capturable_screens\(\)/);
 assert.match(rust, /virtual_display_bounds\(&display_list\)/);
 assert.match(rust, /window_target_at_cursor_native/);
 assert.match(rust, /hide_internal_windows_for_capture/);
 assert.match(rust, /restore_internal_windows_after_capture/);
 assert.match(rust, /result-overlay-opened/);
-assert.match(rust, /fn set_overlay_stack_size/);
+assert.match(rust, /fn copy_shot_image/);
+assert.match(rust, /fn set_overlay_presentation/);
 assert.match(rust, /item_count\.clamp\(1, 5\)/);
+assert.match(rust, /\(12\.0, 64\.0\)/);
+assert.match(rust, /fn save_overlay_shortcut/);
+assert.match(rust, /fn toggle_overlay/);
+assert.match(rust, /fn restore_main_window/);
+assert.match(rust, /capture-unavailable/);
+assert.match(rust, /"no-display"/);
+assert.match(rust, /"overlay-unavailable"/);
+assert.match(rust, /"capture-failed"/);
 assert.match(rust, /fn delete_shots/);
 assert.match(rust, /"open-editor" => open_editor_window/);
 assert.match(rust, /tauri_plugin_dialog::init/);
+assert.match(rust, /tauri_plugin_drag::init/);
 assert.match(rust, /tauri_plugin_single_instance::init/);
 assert.ok(
   rust.indexOf("tauri_plugin_single_instance::init") <
@@ -306,6 +345,7 @@ assert.ok(
 assert.match(rust, /window\.unminimize\(\)/);
 assert.match(rust, /window\.show\(\)/);
 assert.match(rust, /window\.set_focus\(\)/);
+assert.match(rust, /ensure_window_on_screen/);
 assert.match(rust, /window\.label\(\), "main" \| "editor"/);
 assert.doesNotMatch(rust, /unwrap_or\("NOTE"\)/);
 assert.match(rust, /pixelate_region\([\s\S]*annotation\.blur_pixel_size\.unwrap_or\(stroke_width\)/);

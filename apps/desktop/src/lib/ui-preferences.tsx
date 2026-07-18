@@ -48,7 +48,7 @@ const messages = {
     english: "English",
     localPromise: "Hızlı ekran görüntüleri, cihazında kalır.",
     localPromiseDescription:
-      "AtrisHub hesabını doğrular. Ekran görüntüleri, geçmiş, düzenlemeler ve path bilgileri bu masaüstünde yerel kalır.",
+      "AtrisHub hesabını doğrular. Ekran görüntüleri, geçmiş, düzenlemeler ve dosya yolu bilgileri bu masaüstünde yerel kalır.",
     desktopTagline: "AtrisShot masaüstü - Yerel ekran görüntüsü akışı",
     sessionVault: "Oturum belirteçleri işletim sisteminin güvenli kimlik kasasında saklanır.",
     sessionOnly: "AtrisShot tamamen kapatıldığında bu oturum sona erer.",
