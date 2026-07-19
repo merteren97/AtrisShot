@@ -1,3 +1,4 @@
+use ab_glyph::{point, Font, FontArc, PxScale, ScaleFont};
 use arboard::{Clipboard, ImageData};
 use image::{Rgba, RgbaImage};
 use rand::{distr::Alphanumeric, Rng};
@@ -24,10 +25,17 @@ mod auth;
 
 const DEFAULT_SHORTCUT: &str = "Ctrl+Shift+S";
 const DEFAULT_OVERLAY_SHORTCUT: &str = "Ctrl+Shift+O";
+const ANNOTATION_FONT_BYTES: &[u8] = include_bytes!("../../public/brand/NotoSans-Regular.ttf");
 
 #[derive(Clone, Default)]
 struct ShotStore {
     entries: Arc<Mutex<Vec<ShotHistoryEntry>>>,
+}
+
+#[derive(Clone, Default)]
+struct RegisteredShortcuts {
+    capture: Arc<Mutex<Option<Shortcut>>>,
+    overlay: Arc<Mutex<Option<Shortcut>>>,
 }
 
 static CAPTURE_HIDDEN_WINDOWS: OnceLock<Mutex<Vec<String>>> = OnceLock::new();
@@ -808,6 +816,49 @@ fn draw_line(
     }
 }
 
+fn point_in_triangle(
+    point: (f32, f32),
+    first: (f32, f32),
+    second: (f32, f32),
+    third: (f32, f32),
+) -> bool {
+    let sign = |a: (f32, f32), b: (f32, f32), c: (f32, f32)| {
+        (a.0 - c.0) * (b.1 - c.1) - (b.0 - c.0) * (a.1 - c.1)
+    };
+    let first_sign = sign(point, first, second);
+    let second_sign = sign(point, second, third);
+    let third_sign = sign(point, third, first);
+    let has_negative = first_sign < 0.0 || second_sign < 0.0 || third_sign < 0.0;
+    let has_positive = first_sign > 0.0 || second_sign > 0.0 || third_sign > 0.0;
+    !(has_negative && has_positive)
+}
+
+fn draw_filled_triangle(
+    image: &mut RgbaImage,
+    tip: (f32, f32),
+    first_corner: (f32, f32),
+    second_corner: (f32, f32),
+    color: Rgba<u8>,
+) {
+    let min_x = tip.0.min(first_corner.0).min(second_corner.0).floor() as i32;
+    let max_x = tip.0.max(first_corner.0).max(second_corner.0).ceil() as i32;
+    let min_y = tip.1.min(first_corner.1).min(second_corner.1).floor() as i32;
+    let max_y = tip.1.max(first_corner.1).max(second_corner.1).ceil() as i32;
+
+    for y in min_y..=max_y {
+        for x in min_x..=max_x {
+            if point_in_triangle(
+                (x as f32 + 0.5, y as f32 + 0.5),
+                tip,
+                first_corner,
+                second_corner,
+            ) {
+                blend_pixel(image, x, y, color);
+            }
+        }
+    }
+}
+
 fn draw_arrow(
     image: &mut RgbaImage,
     start: &AnnotationPoint,
@@ -816,15 +867,29 @@ fn draw_arrow(
     stroke_width: u32,
 ) {
     draw_line(image, start, end, color, stroke_width);
-    let angle = (end.y - start.y).atan2(end.x - start.x);
-    let length = 18.0 + stroke_width as f32 * 2.0;
-    for offset in [2.55_f32, -2.55_f32] {
-        let point = AnnotationPoint {
-            x: end.x - length * (angle + offset).cos(),
-            y: end.y - length * (angle + offset).sin(),
-        };
-        draw_line(image, end, &point, color, stroke_width);
+    let delta_x = end.x - start.x;
+    let delta_y = end.y - start.y;
+    let distance = delta_x.hypot(delta_y);
+    if distance < 1.0 {
+        return;
     }
+
+    let unit_x = delta_x / distance;
+    let unit_y = delta_y / distance;
+    let head_length = (18.0 + stroke_width as f32 * 2.0).min(distance * 0.45);
+    let base_x = end.x - unit_x * head_length;
+    let base_y = end.y - unit_y * head_length;
+    let half_width = head_length * 0.45;
+    let perpendicular_x = -unit_y * half_width;
+    let perpendicular_y = unit_x * half_width;
+
+    draw_filled_triangle(
+        image,
+        (end.x, end.y),
+        (base_x + perpendicular_x, base_y + perpendicular_y),
+        (base_x - perpendicular_x, base_y - perpendicular_y),
+        color,
+    );
 }
 
 fn draw_rect(
@@ -930,94 +995,66 @@ fn pixelate_region(
     }
 }
 
-fn glyph_rows(character: char) -> [u8; 7] {
-    match character.to_ascii_uppercase() {
-        'A' => [0x0E, 0x11, 0x11, 0x1F, 0x11, 0x11, 0x11],
-        'B' => [0x1E, 0x11, 0x11, 0x1E, 0x11, 0x11, 0x1E],
-        'C' => [0x0F, 0x10, 0x10, 0x10, 0x10, 0x10, 0x0F],
-        'D' => [0x1E, 0x11, 0x11, 0x11, 0x11, 0x11, 0x1E],
-        'E' => [0x1F, 0x10, 0x10, 0x1E, 0x10, 0x10, 0x1F],
-        'F' => [0x1F, 0x10, 0x10, 0x1E, 0x10, 0x10, 0x10],
-        'G' => [0x0F, 0x10, 0x10, 0x13, 0x11, 0x11, 0x0F],
-        'H' => [0x11, 0x11, 0x11, 0x1F, 0x11, 0x11, 0x11],
-        'I' => [0x1F, 0x04, 0x04, 0x04, 0x04, 0x04, 0x1F],
-        'J' => [0x1F, 0x02, 0x02, 0x02, 0x12, 0x12, 0x0C],
-        'K' => [0x11, 0x12, 0x14, 0x18, 0x14, 0x12, 0x11],
-        'L' => [0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x1F],
-        'M' => [0x11, 0x1B, 0x15, 0x15, 0x11, 0x11, 0x11],
-        'N' => [0x11, 0x19, 0x15, 0x13, 0x11, 0x11, 0x11],
-        'O' => [0x0E, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0E],
-        'P' => [0x1E, 0x11, 0x11, 0x1E, 0x10, 0x10, 0x10],
-        'Q' => [0x0E, 0x11, 0x11, 0x11, 0x15, 0x12, 0x0D],
-        'R' => [0x1E, 0x11, 0x11, 0x1E, 0x14, 0x12, 0x11],
-        'S' => [0x0F, 0x10, 0x10, 0x0E, 0x01, 0x01, 0x1E],
-        'T' => [0x1F, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04],
-        'U' => [0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0E],
-        'V' => [0x11, 0x11, 0x11, 0x11, 0x0A, 0x0A, 0x04],
-        'W' => [0x11, 0x11, 0x11, 0x15, 0x15, 0x1B, 0x11],
-        'X' => [0x11, 0x0A, 0x04, 0x04, 0x04, 0x0A, 0x11],
-        'Y' => [0x11, 0x0A, 0x04, 0x04, 0x04, 0x04, 0x04],
-        'Z' => [0x1F, 0x01, 0x02, 0x04, 0x08, 0x10, 0x1F],
-        '0' => [0x0E, 0x11, 0x13, 0x15, 0x19, 0x11, 0x0E],
-        '1' => [0x04, 0x0C, 0x04, 0x04, 0x04, 0x04, 0x0E],
-        '2' => [0x0E, 0x11, 0x01, 0x02, 0x04, 0x08, 0x1F],
-        '3' => [0x1E, 0x01, 0x01, 0x0E, 0x01, 0x01, 0x1E],
-        '4' => [0x02, 0x06, 0x0A, 0x12, 0x1F, 0x02, 0x02],
-        '5' => [0x1F, 0x10, 0x10, 0x1E, 0x01, 0x01, 0x1E],
-        '6' => [0x0E, 0x10, 0x10, 0x1E, 0x11, 0x11, 0x0E],
-        '7' => [0x1F, 0x01, 0x02, 0x04, 0x08, 0x08, 0x08],
-        '8' => [0x0E, 0x11, 0x11, 0x0E, 0x11, 0x11, 0x0E],
-        '9' => [0x0E, 0x11, 0x11, 0x0F, 0x01, 0x01, 0x0E],
-        '-' => [0x00, 0x00, 0x00, 0x1F, 0x00, 0x00, 0x00],
-        '.' => [0x00, 0x00, 0x00, 0x00, 0x00, 0x0C, 0x0C],
-        ':' => [0x00, 0x0C, 0x0C, 0x00, 0x0C, 0x0C, 0x00],
-        ' ' => [0x00; 7],
-        _ => [0x1F, 0x11, 0x02, 0x04, 0x04, 0x00, 0x04],
-    }
-}
-
 fn draw_text(
     image: &mut RgbaImage,
     origin: &AnnotationPoint,
     max_width: f32,
+    max_height: f32,
     text: &str,
     color: Rgba<u8>,
     font_size: u32,
 ) {
-    let scale = (font_size.max(12) / 7).max(2) as i32;
-    let origin_x = origin.x.round() as i32;
+    let font_size = font_size.clamp(12, 64) as f32;
+    let font = FontArc::try_from_slice(ANNOTATION_FONT_BYTES)
+        .expect("bundled annotation font must be valid");
+    let scaled = font.as_scaled(PxScale::from(font_size));
+    let origin_x = origin.x;
+    let right = origin_x + max_width.max(font_size * 2.5);
+    let bottom = origin.y + max_height.max(font_size * 1.35);
+    let line_height = font_size * 1.35;
     let mut x = origin_x;
-    let mut y = origin.y.round() as i32;
-    let glyph_advance = 6 * scale;
-    let max_line_width = max_width.max((glyph_advance * 2) as f32).round() as i32;
+    let mut baseline = origin.y + font_size;
+
     for character in text.chars().take(300) {
         if character == '\n' {
             x = origin_x;
-            y += 9 * scale;
+            baseline += line_height;
             continue;
         }
-        if x > origin_x && x + glyph_advance > origin_x + max_line_width {
+
+        let glyph_id = scaled.glyph_id(character);
+        let advance = scaled.h_advance(glyph_id);
+        if x > origin_x && x + advance > right {
             x = origin_x;
-            y += 9 * scale;
+            baseline += line_height;
         }
-        let rows = glyph_rows(character);
-        for (row_index, row) in rows.iter().enumerate() {
-            for col in 0..5 {
-                if row & (1 << (4 - col)) != 0 {
-                    for dy in 0..scale {
-                        for dx in 0..scale {
-                            blend_pixel(
-                                image,
-                                x + col * scale + dx,
-                                y + row_index as i32 * scale + dy,
-                                color,
-                            );
-                        }
-                    }
+
+        let glyph = glyph_id.with_scale_and_position(font_size, point(x, baseline));
+        if let Some(outlined) = font.outline_glyph(glyph) {
+            let bounds = outlined.px_bounds();
+            outlined.draw(|glyph_x, glyph_y, coverage| {
+                let pixel_x = bounds.min.x.floor() as i32 + glyph_x as i32;
+                let pixel_y = bounds.min.y.floor() as i32 + glyph_y as i32;
+                if (pixel_x as f32) < origin_x
+                    || (pixel_x as f32) >= right
+                    || (pixel_y as f32) < origin.y
+                    || (pixel_y as f32) >= bottom
+                {
+                    return;
                 }
-            }
+                let mut glyph_color = color;
+                glyph_color[3] = (f32::from(color[3]) * coverage).round() as u8;
+                blend_pixel(image, pixel_x, pixel_y, glyph_color);
+            });
         }
-        x += 6 * scale;
+        x += advance;
+        if x >= right {
+            x = origin_x;
+            baseline += line_height;
+        }
+        if baseline > bottom + line_height {
+            break;
+        }
     }
 }
 
@@ -1059,9 +1096,10 @@ fn render_annotations(
                         &mut image,
                         start,
                         (end.x - start.x).abs().max(40.0),
+                        (end.y - start.y).abs().max(32.0),
                         text,
                         color,
-                        annotation.font_size.unwrap_or(24),
+                        annotation.font_size.unwrap_or(24).clamp(12, 64),
                     );
                 }
             }
@@ -1508,7 +1546,7 @@ fn open_storage_folder(app: AppHandle, save_folder: String) -> Result<(), String
     open_folder(&path)
 }
 
-fn register_capture_shortcut(app: &AppHandle, shortcut: &str) -> Result<String, String> {
+fn register_capture_shortcut(app: &AppHandle, shortcut: &str) -> Result<Shortcut, String> {
     let parsed: Shortcut = shortcut
         .parse()
         .map_err(|error| format!("Invalid shortcut: {error}"))?;
@@ -1519,10 +1557,10 @@ fn register_capture_shortcut(app: &AppHandle, shortcut: &str) -> Result<String, 
             }
         })
         .map_err(|error| format!("Shortcut is unavailable: {error}"))?;
-    Ok(shortcut.to_string())
+    Ok(parsed)
 }
 
-fn register_overlay_shortcut(app: &AppHandle, shortcut: &str) -> Result<String, String> {
+fn register_overlay_shortcut(app: &AppHandle, shortcut: &str) -> Result<Shortcut, String> {
     let parsed: Shortcut = shortcut
         .parse()
         .map_err(|error| format!("Invalid shortcut: {error}"))?;
@@ -1533,76 +1571,106 @@ fn register_overlay_shortcut(app: &AppHandle, shortcut: &str) -> Result<String, 
             }
         })
         .map_err(|error| format!("Shortcut is unavailable: {error}"))?;
-    Ok(shortcut.to_string())
+    Ok(parsed)
 }
 
 fn shortcuts_conflict(left: &str, right: &str) -> bool {
-    left.trim().eq_ignore_ascii_case(right.trim())
+    match (left.parse::<Shortcut>(), right.parse::<Shortcut>()) {
+        (Ok(left), Ok(right)) => left.id() == right.id(),
+        _ => left.trim().eq_ignore_ascii_case(right.trim()),
+    }
+}
+
+fn active_shortcut(slot: &Mutex<Option<Shortcut>>) -> Option<Shortcut> {
+    slot.lock().ok().and_then(|value| *value)
+}
+
+fn set_active_shortcut(slot: &Mutex<Option<Shortcut>>, value: Option<Shortcut>) {
+    if let Ok(mut active) = slot.lock() {
+        *active = value;
+    }
+}
+
+fn shortcut_is_distinct(candidate: &str, active: Option<Shortcut>) -> bool {
+    candidate
+        .parse::<Shortcut>()
+        .map(|parsed| active.map_or(true, |current| parsed.id() != current.id()))
+        .unwrap_or(false)
 }
 
 #[tauri::command]
 fn save_shortcut(
     app: AppHandle,
+    state: State<'_, RegisteredShortcuts>,
     shortcut: String,
     previous_shortcut: Option<String>,
 ) -> Result<String, String> {
+    let _ = previous_shortcut;
     let parsed: Shortcut = shortcut
         .parse()
         .map_err(|error| format!("Invalid shortcut: {error}"))?;
-    if previous_shortcut.as_deref() == Some(shortcut.as_str()) {
-        return Ok(shortcut);
-    }
+    let current = active_shortcut(&state.capture);
     let overlay_shortcut = settings_path(&app)
         .ok()
         .and_then(|path| overlay_shortcut_from_settings_file(&path))
         .unwrap_or_else(|| DEFAULT_OVERLAY_SHORTCUT.to_string());
-    if shortcuts_conflict(&shortcut, &overlay_shortcut) {
+    let overlay_active = active_shortcut(&state.overlay);
+    if shortcuts_conflict(&shortcut, &overlay_shortcut)
+        || overlay_active.is_some_and(|active| parsed.id() == active.id())
+    {
         return Err("Capture and overlay shortcuts must be different.".to_string());
     }
-    register_capture_shortcut(&app, &shortcut)?;
+    if current.is_some_and(|active| active.id() == parsed.id()) {
+        return Ok(shortcut);
+    }
 
-    if let Some(previous) = previous_shortcut {
-        if let Ok(previous_parsed) = previous.parse::<Shortcut>() {
-            if let Err(error) = app.global_shortcut().unregister(previous_parsed) {
-                let _ = app.global_shortcut().unregister(parsed);
-                return Err(format!("Previous shortcut could not be replaced: {error}"));
-            }
+    let registered = register_capture_shortcut(&app, &shortcut)?;
+    if let Some(previous) = current {
+        if let Err(error) = app.global_shortcut().unregister(previous) {
+            let _ = app.global_shortcut().unregister(registered);
+            return Err(format!("Previous shortcut could not be replaced: {error}"));
         }
     }
 
+    set_active_shortcut(&state.capture, Some(registered));
     Ok(shortcut)
 }
 
 #[tauri::command]
 fn save_overlay_shortcut(
     app: AppHandle,
+    state: State<'_, RegisteredShortcuts>,
     shortcut: String,
     previous_shortcut: Option<String>,
 ) -> Result<String, String> {
+    let _ = previous_shortcut;
     let parsed: Shortcut = shortcut
         .parse()
         .map_err(|error| format!("Invalid shortcut: {error}"))?;
-    if previous_shortcut.as_deref() == Some(shortcut.as_str()) {
-        return Ok(shortcut);
-    }
+    let current = active_shortcut(&state.overlay);
     let capture_shortcut = settings_path(&app)
         .ok()
         .and_then(|path| shortcut_from_settings_file(&path))
         .unwrap_or_else(|| DEFAULT_SHORTCUT.to_string());
-    if shortcuts_conflict(&shortcut, &capture_shortcut) {
+    let capture_active = active_shortcut(&state.capture);
+    if shortcuts_conflict(&shortcut, &capture_shortcut)
+        || capture_active.is_some_and(|active| parsed.id() == active.id())
+    {
         return Err("Capture and overlay shortcuts must be different.".to_string());
     }
-    register_overlay_shortcut(&app, &shortcut)?;
+    if current.is_some_and(|active| active.id() == parsed.id()) {
+        return Ok(shortcut);
+    }
 
-    if let Some(previous) = previous_shortcut {
-        if let Ok(previous_parsed) = previous.parse::<Shortcut>() {
-            if let Err(error) = app.global_shortcut().unregister(previous_parsed) {
-                let _ = app.global_shortcut().unregister(parsed);
-                return Err(format!("Previous shortcut could not be replaced: {error}"));
-            }
+    let registered = register_overlay_shortcut(&app, &shortcut)?;
+    if let Some(previous) = current {
+        if let Err(error) = app.global_shortcut().unregister(previous) {
+            let _ = app.global_shortcut().unregister(registered);
+            return Err(format!("Previous shortcut could not be replaced: {error}"));
         }
     }
 
+    set_active_shortcut(&state.overlay, Some(registered));
     Ok(shortcut)
 }
 
@@ -1722,7 +1790,7 @@ fn set_overlay_presentation(
     }
 
     let (width, height) = if state == "collapsed" {
-        (12.0, 64.0)
+        (18.0, 72.0)
     } else {
         let item_count = item_count.clamp(1, 5);
         let desired_height = 16 + (item_count * 160) + (item_count.saturating_sub(1) * 12);
@@ -2002,6 +2070,7 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(ShotStore::default())
+        .manage(RegisteredShortcuts::default())
         .manage(auth::AccessGate::default())
         .setup(|app| {
             configure_capture_exclusion(app.handle());
@@ -2016,22 +2085,31 @@ pub fn run() {
                 .as_deref()
                 .and_then(shortcut_from_settings_file)
                 .unwrap_or_else(|| DEFAULT_SHORTCUT.to_string());
-            if register_capture_shortcut(app.handle(), &startup_shortcut).is_err()
-                && startup_shortcut != DEFAULT_SHORTCUT
-            {
-                let _ = register_capture_shortcut(app.handle(), DEFAULT_SHORTCUT);
-            }
+            let capture_active = match register_capture_shortcut(app.handle(), &startup_shortcut) {
+                Ok(active) => Some(active),
+                Err(_) if startup_shortcut != DEFAULT_SHORTCUT => {
+                    register_capture_shortcut(app.handle(), DEFAULT_SHORTCUT).ok()
+                }
+                Err(_) => None,
+            };
+            set_active_shortcut(&app.state::<RegisteredShortcuts>().capture, capture_active);
+
             let overlay_shortcut = saved_settings_path
                 .as_deref()
                 .and_then(overlay_shortcut_from_settings_file)
                 .unwrap_or_else(|| DEFAULT_OVERLAY_SHORTCUT.to_string());
-            if !shortcuts_conflict(&startup_shortcut, &overlay_shortcut)
-                && register_overlay_shortcut(app.handle(), &overlay_shortcut).is_err()
-                && overlay_shortcut != DEFAULT_OVERLAY_SHORTCUT
-                && !shortcuts_conflict(&startup_shortcut, DEFAULT_OVERLAY_SHORTCUT)
-            {
-                let _ = register_overlay_shortcut(app.handle(), DEFAULT_OVERLAY_SHORTCUT);
+            let mut overlay_active = None;
+            if shortcut_is_distinct(&overlay_shortcut, capture_active) {
+                overlay_active = register_overlay_shortcut(app.handle(), &overlay_shortcut).ok();
             }
+            if overlay_active.is_none()
+                && overlay_shortcut != DEFAULT_OVERLAY_SHORTCUT
+                && shortcut_is_distinct(DEFAULT_OVERLAY_SHORTCUT, capture_active)
+            {
+                overlay_active =
+                    register_overlay_shortcut(app.handle(), DEFAULT_OVERLAY_SHORTCUT).ok();
+            }
+            set_active_shortcut(&app.state::<RegisteredShortcuts>().overlay, overlay_active);
 
             if let Some(icon) = app.default_window_icon() {
                 let menu = build_tray_menu(app.handle(), "en")?;
@@ -2202,6 +2280,71 @@ mod tests {
     fn shortcut_conflict_check_is_trimmed_and_case_insensitive() {
         assert!(shortcuts_conflict("Ctrl+Shift+O", " ctrl+shift+o "));
         assert!(!shortcuts_conflict("Ctrl+Shift+S", "Ctrl+Shift+O"));
+    }
+
+    #[test]
+    fn shortcut_distinct_check_uses_registered_hotkey_id() {
+        let active = "Ctrl+Shift+O"
+            .parse::<Shortcut>()
+            .expect("parse active shortcut");
+        assert!(!shortcut_is_distinct("ctrl+shift+o", Some(active)));
+        assert!(shortcut_is_distinct("Ctrl+Alt+O", Some(active)));
+        assert!(shortcut_is_distinct("Ctrl+Alt+O", None));
+    }
+
+    #[test]
+    fn arrowhead_stays_at_the_second_point() {
+        let white = Rgba([255, 255, 255, 255]);
+        let red = Rgba([239, 68, 68, 255]);
+        let mut right = RgbaImage::from_pixel(100, 64, white);
+        draw_arrow(
+            &mut right,
+            &AnnotationPoint { x: 10.0, y: 32.0 },
+            &AnnotationPoint { x: 50.0, y: 32.0 },
+            red,
+            3,
+        );
+        let rightmost = right
+            .enumerate_pixels()
+            .filter(|(_, _, pixel)| **pixel != white)
+            .map(|(x, _, _)| x)
+            .max()
+            .expect("right arrow pixels");
+        assert!(
+            rightmost <= 51,
+            "arrowhead crossed the endpoint: {rightmost}"
+        );
+
+        let mut left = RgbaImage::from_pixel(100, 64, white);
+        draw_arrow(
+            &mut left,
+            &AnnotationPoint { x: 50.0, y: 32.0 },
+            &AnnotationPoint { x: 10.0, y: 32.0 },
+            red,
+            3,
+        );
+        let leftmost = left
+            .enumerate_pixels()
+            .filter(|(_, _, pixel)| **pixel != white)
+            .map(|(x, _, _)| x)
+            .min()
+            .expect("left arrow pixels");
+        assert!(leftmost >= 9, "arrowhead crossed the endpoint: {leftmost}");
+    }
+
+    #[test]
+    fn annotation_text_preserves_case_and_unicode_glyphs() {
+        let white = Rgba([255, 255, 255, 255]);
+        let red = Rgba([239, 68, 68, 255]);
+        let origin = AnnotationPoint { x: 4.0, y: 4.0 };
+        let mut lower = RgbaImage::from_pixel(260, 80, white);
+        let mut upper = RgbaImage::from_pixel(260, 80, white);
+        let mut unicode = RgbaImage::from_pixel(260, 80, white);
+        draw_text(&mut lower, &origin, 240.0, 64.0, "small", red, 24);
+        draw_text(&mut upper, &origin, 240.0, 64.0, "SMALL", red, 24);
+        draw_text(&mut unicode, &origin, 240.0, 64.0, "çŞğİöÜ", red, 24);
+        assert_ne!(lower.as_raw(), upper.as_raw());
+        assert!(unicode.pixels().any(|pixel| *pixel != white));
     }
 
     #[test]

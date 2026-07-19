@@ -26,6 +26,7 @@ import { DEFAULT_SHOT_SETTINGS } from "@atris-shot/shot-core";
 import { loadDesktopSettings } from "@/lib/desktop-settings";
 import { deleteShotHistoryEntries, deleteShotHistoryEntry, loadShotHistory } from "@/lib/shot-history";
 import { isNativeRuntime, nativeRuntime } from "@/lib/native-runtime";
+import { clearShotImageCache, getShotImageDataUrl } from "@/lib/shot-image-cache";
 import { useUiPreferences, type Locale } from "@/lib/ui-preferences";
 import { cn } from "@/lib/utils";
 
@@ -148,17 +149,53 @@ const workspaceCopy = {
 
 type WorkspaceText = Record<keyof typeof workspaceCopy.en, string>;
 
-function useShotDataUrl(path?: string | null, revision?: number) {
+function useShotDataUrl(path?: string | null, revision?: number, defer = false) {
   const [dataUrl, setDataUrl] = useState("");
   const [failed, setFailed] = useState(false);
+  const [visible, setVisible] = useState(!defer);
+  const visibilityNodeRef = useRef<HTMLElement | null>(null);
+  const loadKeyRef = useRef(`${path ?? ""}\u0000${revision ?? ""}`);
+  const visibilityRef = useCallback((node: HTMLElement | null) => {
+    visibilityNodeRef.current = node;
+  }, []);
+
+  useEffect(() => {
+    setVisible(!defer);
+  }, [defer, path, revision]);
+
+  useEffect(() => {
+    if (!defer || visible) return;
+    if (typeof IntersectionObserver === "undefined") {
+      setVisible(true);
+      return;
+    }
+    const target = visibilityNodeRef.current;
+    if (!target) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry?.isIntersecting) return;
+        setVisible(true);
+        observer.disconnect();
+      },
+      { rootMargin: "320px 0px" },
+    );
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [defer, path, revision, visible]);
 
   useEffect(() => {
     let cancelled = false;
+    const loadKey = `${path ?? ""}\u0000${revision ?? ""}`;
+    const keyChanged = loadKeyRef.current !== loadKey;
+    loadKeyRef.current = loadKey;
     setDataUrl("");
     setFailed(false);
-    if (!path || !isNativeRuntime()) return;
-    void nativeRuntime
-      .readShotDataUrl(path)
+    if (defer && keyChanged) {
+      setVisible(false);
+      return;
+    }
+    if (!path || !isNativeRuntime() || !visible) return;
+    void getShotImageDataUrl(path, revision, defer ? "normal" : "high")
       .then((url) => {
         if (!cancelled) setDataUrl(url);
       })
@@ -168,9 +205,9 @@ function useShotDataUrl(path?: string | null, revision?: number) {
     return () => {
       cancelled = true;
     };
-  }, [path, revision]);
+  }, [defer, path, revision, visible]);
 
-  return { dataUrl, failed };
+  return { dataUrl, failed, visibilityRef };
 }
 
 function ShotImage({
@@ -184,10 +221,13 @@ function ShotImage({
   className?: string;
   loading?: "lazy" | "eager";
 }) {
-  const { dataUrl, failed } = useShotDataUrl(path, revision);
+  const { dataUrl, failed, visibilityRef } = useShotDataUrl(path, revision, loading === "lazy");
   if (!path || failed) return <Image className="h-5 w-5 text-muted-foreground" />;
-  if (!dataUrl) return <div className="h-full w-full animate-pulse bg-muted" aria-hidden="true" />;
-  return <img src={dataUrl} alt="" className={className} loading={loading} draggable={false} />;
+  if (!dataUrl) {
+    const placeholderClass = loading === "lazy" ? "bg-muted" : "animate-pulse bg-muted";
+    return <div ref={visibilityRef} className={`h-full w-full ${placeholderClass}`} aria-hidden="true" />;
+  }
+  return <img ref={visibilityRef} src={dataUrl} alt="" className={className} loading={loading} decoding="async" draggable={false} />;
 }
 
 export function ShotWorkspace({ session, onLogout }: { session: ShotSession; onLogout: () => void }) {
@@ -203,20 +243,30 @@ export function ShotWorkspace({ session, onLogout }: { session: ShotSession; onL
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [status, setStatus] = useState<string>(text.ready);
   const [error, setError] = useState("");
+  const missingCheckTokenRef = useRef(0);
 
   const refreshMissingEntries = useCallback(async (entries: ShotHistoryEntry[]) => {
+    const token = ++missingCheckTokenRef.current;
     if (!isNativeRuntime()) {
       setMissingEntryIds(new Set());
       return;
     }
-    const checks = await Promise.all(
-      entries.map(async (entry) => {
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    const missing = new Set<string>();
+    let nextIndex = 0;
+    const checkBatch = async () => {
+      while (nextIndex < entries.length) {
+        const entry = entries[nextIndex++];
+        if (!entry) return;
         const path = entry.editedPath || entry.originalPath;
-        const exists = path ? await nativeRuntime.pathExists(path) : false;
-        return [entry.id, !exists] as const;
-      }),
+        const exists = path ? await nativeRuntime.pathExists(path).catch(() => false) : false;
+        if (!exists) missing.add(entry.id);
+      }
+    };
+    await Promise.all(
+      Array.from({ length: Math.min(4, Math.max(1, entries.length)) }, () => checkBatch()),
     );
-    setMissingEntryIds(new Set(checks.filter(([, missing]) => missing).map(([id]) => id)));
+    if (token === missingCheckTokenRef.current) setMissingEntryIds(missing);
   }, []);
 
   const refreshHistory = useCallback(async () => {
@@ -238,9 +288,19 @@ export function ShotWorkspace({ session, onLogout }: { session: ShotSession; onL
     void nativeRuntime.onShotCaptured((entry) => {
       setHistoryEntries((current) => {
         const next = [entry, ...current.filter((item) => item.id !== entry.id)];
-        void refreshMissingEntries(next);
         return next;
       });
+      const entryPath = entry.editedPath || entry.originalPath;
+      void nativeRuntime.pathExists(entryPath)
+        .then((exists) => {
+          setMissingEntryIds((current) => {
+            const next = new Set(current);
+            if (exists) next.delete(entry.id);
+            else next.add(entry.id);
+            return next;
+          });
+        })
+        .catch(() => undefined);
       setSelectedEntryIds((current) => {
         if (!current.has(entry.id)) return current;
         const next = new Set(current);
@@ -333,6 +393,7 @@ export function ShotWorkspace({ session, onLogout }: { session: ShotSession; onL
   };
 
   const handleLocalDataRemoved = useCallback(() => {
+    clearShotImageCache();
     setHistoryEntries([]);
     setMissingEntryIds(new Set());
     setSelectedEntry(null);
@@ -497,7 +558,7 @@ function HistoryWorkspace({
                   <div
                     key={entry.id}
                     className={cn(
-                      "relative rounded-xl border bg-background/70 p-2.5 text-left shadow-sm transition hover:border-primary/40 hover:bg-accent/45",
+                      "relative rounded-xl border bg-background/70 p-2.5 text-left shadow-sm transition-colors duration-150 [content-visibility:auto] [contain-intrinsic-size:0_220px] hover:border-primary/40 hover:bg-accent/45",
                       selected?.id === entry.id && "border-primary bg-accent",
                       checked && "ring-1 ring-primary/60",
                     )}

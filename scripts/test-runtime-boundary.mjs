@@ -37,6 +37,10 @@ const shotCore = await readFile(
   new URL("../packages/shot-core/src/index.ts", import.meta.url),
   "utf8",
 );
+const tauriExportScript = await readFile(
+  new URL("../apps/desktop/scripts/build-tauri-export.mjs", import.meta.url),
+  "utf8",
+);
 
 assert.match(rust, /app_data_dir/);
 assert.match(rust, /Shot path must stay inside the AtrisShot data directory/);
@@ -56,6 +60,15 @@ assert.match(rust, /capture_virtual_region/);
 assert.match(rust, /fn draw_ellipse/);
 assert.match(rust, /"ellipse" => draw_ellipse/);
 assert.doesNotMatch(rust, /"rectangle" \| "ellipse" => draw_rect/);
+assert.match(rust, /fn draw_filled_triangle/);
+assert.match(rust, /head_length = .*distance \* 0\.45/);
+assert.match(rust, /include_bytes!\("\.\.\/\.\.\/public\/brand\/NotoSans-Regular\.ttf"\)/);
+assert.match(rust, /struct RegisteredShortcuts/);
+assert.match(rust, /fn active_shortcut/);
+assert.match(rust, /fn shortcut_is_distinct/);
+assert.doesNotMatch(rust, /character\.to_ascii_uppercase\(\)/);
+assert.match(tauriExportScript, /brand\/NotoSans-Regular\.ttf/);
+assert.match(tauriExportScript, /copyFile\(source, destination\)/);
 assert.match(rust, /shortcut_from_settings_json/);
 assert.match(rust, /shortcut_from_settings_file/);
 assert.match(rust, /display_path/);
@@ -128,6 +141,10 @@ const nativeRuntime = await readFile(
   new URL("../apps/desktop/src/lib/native-runtime.ts", import.meta.url),
   "utf8",
 );
+const shotImageCache = await readFile(
+  new URL("../apps/desktop/src/lib/shot-image-cache.ts", import.meta.url),
+  "utf8",
+);
 const uiPreferences = await readFile(
   new URL("../apps/desktop/src/lib/ui-preferences.tsx", import.meta.url),
   "utf8",
@@ -193,7 +210,18 @@ assert.match(nativeRuntime, /deleteShots/);
 assert.match(nativeRuntime, /confirmAction/);
 assert.match(nativeRuntime, /@tauri-apps\/plugin-dialog/);
 assert.doesNotMatch(nativeRuntime, /convertFileSrc|fileUrl/);
-assert.match(workspace, /readShotDataUrl/);
+assert.match(shotImageCache, /MAX_CONCURRENT_READS = 2/);
+assert.match(shotImageCache, /MAX_CACHED_IMAGES = 24/);
+assert.match(shotImageCache, /MAX_CACHED_DATA_URL_CHARS = 12_000_000/);
+assert.match(shotImageCache, /MAX_CACHED_TOTAL_CHARS = 48_000_000/);
+assert.match(shotImageCache, /priority: "high" \| "normal"/);
+assert.match(shotImageCache, /pending\.get\(key\)/);
+assert.match(shotImageCache, /queue\.unshift\(task\)/);
+assert.match(workspace, /getShotImageDataUrl/);
+assert.match(workspace, /IntersectionObserver/);
+assert.match(workspace, /rootMargin: "320px 0px"/);
+assert.match(workspace, /content-visibility:auto/);
+assert.match(workspace, /transition-colors duration-150/);
 assert.match(workspace, /HistoryWorkspace/);
 assert.match(workspace, /Selected screenshot/);
 assert.match(workspace, /selectedEntryIds/);
@@ -220,12 +248,18 @@ assert.doesNotMatch(workspace, /section: "editor"/);
 assert.doesNotMatch(workspace, /setActiveSection\("editor"\)/);
 assert.doesNotMatch(workspace, /function CapturePanel|function EditorPanel/);
 assert.doesNotMatch(workspace, /Capture display|Display layout|click a display/);
-assert.match(resultOverlay, /readShotDataUrl/);
+assert.match(resultOverlay, /getShotImageDataUrl/);
 assert.match(resultOverlay, /previewUrl/);
 assert.match(resultOverlay, /nativeRuntime\.listShotHistory\(\)/);
-assert.match(resultOverlay, /nativeRuntime\.pathExists/);
+assert.match(resultOverlay, /nativeRuntime\s*\.pathExists/);
+assert.match(resultOverlay, /findAvailableOverlayEntries/);
+assert.match(resultOverlay, /Math\.min\(4/);
 assert.match(resultOverlay, /onResultOverlayOpened/);
 assert.match(resultOverlay, /MAX_OVERLAY_ENTRIES = 5/);
+assert.match(resultOverlay, /dismissed-overlay-entries/);
+assert.match(resultOverlay, /sessionStorage/);
+assert.match(resultOverlay, /dismissedEntryIdsRef/);
+assert.match(resultOverlay, /persistDismissedOverlayIds/);
 assert.match(resultOverlay, /upsertOverlayEntry/);
 assert.match(resultOverlay, /h-40 w-72/);
 assert.match(resultOverlay, /flex-col gap-3/);
@@ -305,7 +339,7 @@ assert.doesNotMatch(editorWindow, /border-2 bg-background\/15/);
 assert.doesNotMatch(editorWindow, /isText \? annotation\.text \|\| "Text" : annotation\.tool/);
 assert.match(editorWindow, /showOverlay/);
 assert.match(editorWindow, /hideEditorWindow/);
-assert.match(editorWindow, /readShotDataUrl/);
+assert.match(editorWindow, /getShotImageDataUrl/);
 assert.match(editorWindow, /onEditorShotRequested/);
 assert.match(editorWindow, /Click canvas to write/);
 assert.match(editorWindow, /formatPathForDisplay/);
@@ -324,7 +358,7 @@ assert.match(rust, /result-overlay-opened/);
 assert.match(rust, /fn copy_shot_image/);
 assert.match(rust, /fn set_overlay_presentation/);
 assert.match(rust, /item_count\.clamp\(1, 5\)/);
-assert.match(rust, /\(12\.0, 64\.0\)/);
+assert.match(rust, /\(18\.0, 72\.0\)/);
 assert.match(rust, /fn save_overlay_shortcut/);
 assert.match(rust, /fn toggle_overlay/);
 assert.match(rust, /fn restore_main_window/);
@@ -369,7 +403,10 @@ assert.match(editorWindow, /displayScale/);
 assert.match(rust, /stroke_width\.clamp\(4, 48\)/);
 assert.match(rust, /shape_stroke_width_changes_rendered_pixels/);
 assert.match(rust, /blur_pixel_size_changes_rendered_pixels/);
-assert.match(rust, /max_line_width/);
+assert.match(rust, /annotation_text_preserves_case_and_unicode_glyphs/);
+assert.match(editorWindow, /AtrisShotAnnotation/);
+assert.match(editorWindow, /Math\.min\(64, annotation\.fontSize/);
+assert.match(editorWindow, /markerUnits="userSpaceOnUse"/);
 assert.match(rust, /remove_history_entry_files/);
 assert.match(rust, /history_entry_file_cleanup_removes_original_edited_and_thumbnail/);
 assert.match(authShell, /LanguagePicker/);

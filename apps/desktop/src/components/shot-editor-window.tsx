@@ -25,6 +25,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { loadDesktopSettings } from "@/lib/desktop-settings";
 import { isNativeRuntime, nativeRuntime } from "@/lib/native-runtime";
+import { getShotImageDataUrl } from "@/lib/shot-image-cache";
 import { useUiPreferences, type Locale } from "@/lib/ui-preferences";
 import { cn } from "@/lib/utils";
 
@@ -141,8 +142,7 @@ function useShotDataUrl(path?: string | null, revision?: number) {
     setDataUrl("");
     setFailed(false);
     if (!path || !isNativeRuntime()) return;
-    void nativeRuntime
-      .readShotDataUrl(path)
+    void getShotImageDataUrl(path, revision, "high")
       .then((url) => {
         if (!cancelled) setDataUrl(url);
       })
@@ -854,7 +854,7 @@ function ShotEditor({
                 setPanInteractionSync(null);
               }}
             >
-              <img src={imageUrl} alt="" draggable={false} className="absolute inset-0 h-full w-full select-none object-fill" />
+              <img src={imageUrl} alt="" decoding="async" draggable={false} className="absolute inset-0 h-full w-full select-none object-fill" />
               {annotations.map((annotation, index) => (
                 <AnnotationPreview
                   key={annotation.id}
@@ -1074,8 +1074,8 @@ function AnnotationPreview({
       <>
         <svg className="pointer-events-none absolute inset-0 h-full w-full" viewBox={`0 0 ${width} ${height}`} aria-hidden="true">
           <defs>
-            <marker id={`arrow-${annotation.id}`} markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
-              <path d="M0,0 L0,6 L9,3 z" fill={annotation.color} />
+            <marker id={`arrow-${annotation.id}`} markerWidth="24" markerHeight="18" refX="22" refY="9" orient="auto" markerUnits="userSpaceOnUse">
+              <path d="M0,0 L0,18 L22,9 z" fill={annotation.color} />
             </marker>
           </defs>
           {annotation.tool === "pen" ? (
@@ -1174,7 +1174,7 @@ function AnnotationPreview({
             onTextCommit();
           }
         }}
-        className="absolute z-20 min-h-10 min-w-24 resize-none overflow-hidden rounded-md border bg-background/95 px-2 py-1 font-medium leading-tight outline-none ring-2 ring-ring shadow-xl"
+        className="absolute z-20 min-h-10 min-w-24 resize-none overflow-hidden rounded-md border bg-background/95 px-2 py-1 font-normal leading-tight outline-none ring-2 ring-ring shadow-xl"
         style={{
           left,
           top,
@@ -1182,7 +1182,9 @@ function AnnotationPreview({
           height: boxHeight,
           color: annotation.color,
           borderColor: annotation.color,
-          fontSize: `${Math.max(12, Math.min(40, annotation.fontSize || 24))}px`,
+          fontFamily: "AtrisShotAnnotation, Arial, Helvetica, sans-serif",
+          fontSize: `${Math.max(12, Math.min(64, annotation.fontSize || 24))}px`,
+          fontWeight: 400,
           boxSizing: "border-box",
         }}
       />
@@ -1201,7 +1203,7 @@ function AnnotationPreview({
       />
       <div
         className={cn(
-          "pointer-events-none absolute bg-background/10 px-2 py-1 font-medium",
+          "pointer-events-none absolute bg-background/10 px-2 py-1 font-normal",
           isEllipse ? "rounded-full" : "rounded",
           isText && "whitespace-pre-wrap break-words leading-tight",
           selected && "shadow-[0_0_0_2px_rgb(255_255_255_/_0.85)]",
@@ -1218,6 +1220,8 @@ function AnnotationPreview({
           borderStyle: "solid",
           borderWidth: isText ? (selected ? 1 : 0) : isBlur ? 0 : Math.max(1, annotation.strokeWidth),
           color: annotation.color,
+          fontFamily: isText ? "AtrisShotAnnotation, Arial, Helvetica, sans-serif" : undefined,
+          fontWeight: isText ? 400 : undefined,
           backgroundColor: isBlur ? "rgb(100 116 139 / 0.18)" : undefined,
           backgroundImage: isBlur
             ? `linear-gradient(45deg, rgb(255 255 255 / 0.16) 25%, transparent 25%, transparent 75%, rgb(255 255 255 / 0.16) 75%), linear-gradient(45deg, rgb(0 0 0 / 0.16) 25%, transparent 25%, transparent 75%, rgb(0 0 0 / 0.16) 75%)`
@@ -1225,7 +1229,7 @@ function AnnotationPreview({
           backgroundPosition: isBlur ? `0 0, ${pixelSize / 2}px ${pixelSize / 2}px` : undefined,
           backgroundSize: isBlur ? `${pixelSize}px ${pixelSize}px` : undefined,
           backdropFilter: isBlur ? `blur(${Math.min(10, pixelSize / 4)}px)` : undefined,
-          fontSize: isText ? `${Math.max(12, Math.min(40, annotation.fontSize || 24))}px` : undefined,
+          fontSize: isText ? `${Math.max(12, Math.min(64, annotation.fontSize || 24))}px` : undefined,
         }}
       >
         {isText ? annotation.text || "Text" : null}

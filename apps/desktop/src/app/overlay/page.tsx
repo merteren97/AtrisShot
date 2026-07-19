@@ -1,17 +1,19 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type DragEvent, type MouseEvent } from "react";
-import { ChevronRight, Copy, Edit3, Image, PanelLeftClose, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Copy, Edit3, Image, PanelLeftClose, X } from "lucide-react";
 import type { ShotHistoryEntry, ShotSettings } from "@atris-shot/shot-core";
 import { DEFAULT_SHOT_SETTINGS } from "@atris-shot/shot-core";
 import { Button } from "@/components/ui/button";
 import { loadDesktopSettings } from "@/lib/desktop-settings";
 import { isNativeRuntime, nativeRuntime } from "@/lib/native-runtime";
+import { getShotImageDataUrl } from "@/lib/shot-image-cache";
 import { useUiPreferences } from "@/lib/ui-preferences";
 
 const MAX_OVERLAY_ENTRIES = 5;
 const AUTO_HIDE_DELAY_MS = 4_000;
 const POINTER_LEAVE_DELAY_MS = 500;
+const DISMISSED_OVERLAY_STORAGE_KEY = "atris-shot.dismissed-overlay-entries";
 
 type PresentationState = "expanded" | "collapsed" | "hidden";
 
@@ -34,8 +36,59 @@ const overlayCopy = {
   },
 } as const;
 
-function upsertOverlayEntry(entries: ShotHistoryEntry[], nextEntry: ShotHistoryEntry) {
+function readDismissedOverlayIds() {
+  if (typeof window === "undefined") return new Set<string>();
+  try {
+    const parsed = JSON.parse(window.sessionStorage.getItem(DISMISSED_OVERLAY_STORAGE_KEY) || "[]");
+    return new Set(
+      Array.isArray(parsed)
+        ? parsed.filter((id): id is string => typeof id === "string").slice(-50)
+        : [],
+    );
+  } catch {
+    return new Set<string>();
+  }
+}
+
+function persistDismissedOverlayIds(ids: Set<string>) {
+  try {
+    window.sessionStorage.setItem(
+      DISMISSED_OVERLAY_STORAGE_KEY,
+      JSON.stringify(Array.from(ids).slice(-50)),
+    );
+  } catch {
+    // Session storage is a convenience; the in-memory set remains authoritative.
+  }
+}
+
+function upsertOverlayEntry(
+  entries: ShotHistoryEntry[],
+  nextEntry: ShotHistoryEntry,
+  dismissedIds: Set<string>,
+) {
+  if (dismissedIds.has(nextEntry.id)) return entries;
   return [nextEntry, ...entries.filter((entry) => entry.id !== nextEntry.id)].slice(0, MAX_OVERLAY_ENTRIES);
+}
+
+async function findAvailableOverlayEntries(history: ShotHistoryEntry[]) {
+  const candidates = history.slice(0, 25);
+  await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  const available = new Array<boolean>(candidates.length).fill(false);
+  let nextIndex = 0;
+  const checkBatch = async () => {
+    while (nextIndex < candidates.length) {
+      const index = nextIndex++;
+      const entry = candidates[index];
+      if (!entry) return;
+      available[index] = await nativeRuntime
+        .pathExists(entry.editedPath || entry.originalPath)
+        .catch(() => false);
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(4, Math.max(1, candidates.length)) }, () => checkBatch()),
+  );
+  return candidates.filter((_, index) => available[index]);
 }
 
 export default function OverlayPage() {
@@ -45,6 +98,7 @@ export default function OverlayPage() {
   const [settings, setSettings] = useState<ShotSettings>(DEFAULT_SHOT_SETTINGS);
   const [presentation, setPresentation] = useState<PresentationState>("collapsed");
   const [manualPinned, setManualPinned] = useState(false);
+  const dismissedEntryIdsRef = useRef<Set<string>>(readDismissedOverlayIds());
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const clearTimer = useCallback(() => {
@@ -74,13 +128,27 @@ export default function OverlayPage() {
 
   const hydrateRecent = useCallback(async () => {
     const history = await nativeRuntime.listShotHistory();
-    const availability = await Promise.all(
-      history.slice(0, 25).map(async (entry) => ({
-        entry,
-        available: await nativeRuntime.pathExists(entry.editedPath || entry.originalPath),
-      })),
+    const dismissedIds = dismissedEntryIdsRef.current;
+    const historyIds = new Set(history.map((entry) => entry.id));
+    const activeDismissedIds = new Set(Array.from(dismissedIds).filter((id) => historyIds.has(id)));
+    if (activeDismissedIds.size !== dismissedIds.size) {
+      dismissedIds.clear();
+      activeDismissedIds.forEach((id) => dismissedIds.add(id));
+      persistDismissedOverlayIds(dismissedIds);
+    }
+    const availableEntries = await findAvailableOverlayEntries(history);
+    setEntries(
+      availableEntries
+        .filter((entry) => !dismissedIds.has(entry.id))
+        .slice(0, MAX_OVERLAY_ENTRIES),
     );
-    setEntries(availability.filter(({ available }) => available).slice(0, MAX_OVERLAY_ENTRIES).map(({ entry }) => entry));
+  }, []);
+
+  const dismissEntry = useCallback((id: string) => {
+    const dismissedIds = dismissedEntryIdsRef.current;
+    dismissedIds.add(id);
+    persistDismissedOverlayIds(dismissedIds);
+    setEntries((current) => current.filter((entry) => entry.id !== id));
   }, []);
 
   const reloadSettings = useCallback(() => {
@@ -95,7 +163,8 @@ export default function OverlayPage() {
 
     const disposers: Array<() => void> = [];
     void nativeRuntime.onShotCaptured((next) => {
-      setEntries((current) => upsertOverlayEntry(current, next));
+      if (dismissedEntryIdsRef.current.has(next.id)) return;
+      setEntries((current) => upsertOverlayEntry(current, next, dismissedEntryIdsRef.current));
       revealForCapture();
     }).then((dispose) => disposers.push(dispose));
     void nativeRuntime.onResultOverlayOpened(() => {
@@ -146,13 +215,14 @@ export default function OverlayPage() {
   };
 
   if (presentation === "collapsed") {
+    const collapsedOnRight = settings.overlayCorner.endsWith("right");
     return (
-      <main className="grid min-h-screen place-items-center bg-transparent">
+      <main className="grid min-h-screen place-items-center bg-transparent p-1">
         <button
           type="button"
           aria-label={text.open}
           title={text.open}
-          className="group grid h-full w-full place-items-center bg-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="group relative grid h-full w-full place-items-center bg-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           onMouseEnter={() => {
             clearTimer();
             setPresentation("expanded");
@@ -163,8 +233,18 @@ export default function OverlayPage() {
             setPresentation("expanded");
           }}
         >
-          <span className="flex h-16 w-full items-center justify-center rounded-r-full bg-primary/90 text-primary-foreground shadow-lg">
-            <ChevronRight className="h-3 w-3 opacity-0 transition group-hover:opacity-100" />
+          <span
+            className={`relative flex h-full w-full items-center justify-center overflow-hidden border border-primary/30 bg-primary/90 text-primary-foreground shadow-lg shadow-primary/25 transition-all duration-200 group-hover:bg-primary ${collapsedOnRight ? "rounded-l-xl" : "rounded-r-xl"}`}
+          >
+            <span
+              className={`absolute inset-y-2 w-0.5 rounded-full bg-primary-foreground/50 transition-all duration-200 group-hover:inset-y-1 group-hover:w-1 ${collapsedOnRight ? "right-1" : "left-1"}`}
+              aria-hidden="true"
+            />
+            <span
+              className={`relative grid h-9 w-3.5 place-items-center rounded-full bg-primary-foreground/15 ring-1 ring-primary-foreground/25 transition-transform duration-200 group-hover:scale-110 group-hover:bg-primary-foreground/25 ${collapsedOnRight ? "group-hover:-translate-x-0.5" : "group-hover:translate-x-0.5"}`}
+            >
+              {collapsedOnRight ? <ChevronLeft className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+            </span>
           </span>
         </button>
       </main>
@@ -191,7 +271,7 @@ export default function OverlayPage() {
             entry={entry}
             text={text}
             onCollapse={collapse}
-            onDismiss={() => setEntries((current) => current.filter((candidate) => candidate.id !== entry.id))}
+            onDismiss={() => dismissEntry(entry.id)}
           />
         ))}
       </div>
@@ -213,7 +293,7 @@ function OverlayCard({ entry, text, onCollapse, onDismiss }: {
   useEffect(() => {
     let cancelled = false;
     setPreviewUrl("");
-    void nativeRuntime.readShotDataUrl(shotPath).then((url) => {
+    void getShotImageDataUrl(shotPath, entry.editRevision, "high").then((url) => {
       if (!cancelled) setPreviewUrl(url);
     }).catch(() => undefined);
     return () => {
@@ -258,7 +338,7 @@ function OverlayCard({ entry, text, onCollapse, onDismiss }: {
       title={displayPath}
     >
       {previewUrl ? (
-        <img src={previewUrl} alt={text.preview} className="h-full w-full select-none object-contain" draggable={false} />
+        <img src={previewUrl} alt={text.preview} className="h-full w-full select-none object-contain" decoding="async" draggable={false} />
       ) : (
         <div className="grid h-full place-items-center rounded-lg bg-muted/75"><Image className="h-7 w-7 text-muted-foreground" /></div>
       )}
