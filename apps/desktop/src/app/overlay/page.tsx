@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type DragEvent, type MouseEvent } from "react";
-import { ChevronLeft, ChevronRight, Copy, Edit3, Image, PanelLeftClose, X } from "lucide-react";
+import { Copy, Edit3, Image, PanelLeftClose, PanelLeftOpen, PanelRightOpen, X } from "lucide-react";
 import type { ShotHistoryEntry, ShotSettings } from "@atris-shot/shot-core";
 import { DEFAULT_SHOT_SETTINGS } from "@atris-shot/shot-core";
 import { Button } from "@/components/ui/button";
@@ -70,36 +70,22 @@ function upsertOverlayEntry(
   return [nextEntry, ...entries.filter((entry) => entry.id !== nextEntry.id)].slice(0, MAX_OVERLAY_ENTRIES);
 }
 
-async function findAvailableOverlayEntries(history: ShotHistoryEntry[]) {
-  const candidates = history.slice(0, 25);
-  await new Promise<void>((resolve) => setTimeout(resolve, 0));
-  const available = new Array<boolean>(candidates.length).fill(false);
-  let nextIndex = 0;
-  const checkBatch = async () => {
-    while (nextIndex < candidates.length) {
-      const index = nextIndex++;
-      const entry = candidates[index];
-      if (!entry) return;
-      available[index] = await nativeRuntime
-        .pathExists(entry.editedPath || entry.originalPath)
-        .catch(() => false);
-    }
-  };
-  await Promise.all(
-    Array.from({ length: Math.min(4, Math.max(1, candidates.length)) }, () => checkBatch()),
-  );
-  return candidates.filter((_, index) => available[index]);
-}
-
 export default function OverlayPage() {
   const { locale } = useUiPreferences();
   const text = overlayCopy[locale];
   const [entries, setEntries] = useState<ShotHistoryEntry[]>([]);
   const [settings, setSettings] = useState<ShotSettings>(DEFAULT_SHOT_SETTINGS);
-  const [presentation, setPresentation] = useState<PresentationState>("collapsed");
+  const [presentation, setPresentation] = useState<PresentationState>("hidden");
+  const [transitioning, setTransitioning] = useState(false);
   const [manualPinned, setManualPinned] = useState(false);
   const dismissedEntryIdsRef = useRef<Set<string>>(readDismissedOverlayIds());
+  const entriesRef = useRef(entries);
+  const transitionIdRef = useRef(0);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    entriesRef.current = entries;
+  }, [entries]);
 
   const clearTimer = useCallback(() => {
     if (timerRef.current) clearTimeout(timerRef.current);
@@ -126,24 +112,6 @@ export default function OverlayPage() {
     setPresentation("expanded");
   }, [clearTimer]);
 
-  const hydrateRecent = useCallback(async () => {
-    const history = await nativeRuntime.listShotHistory();
-    const dismissedIds = dismissedEntryIdsRef.current;
-    const historyIds = new Set(history.map((entry) => entry.id));
-    const activeDismissedIds = new Set(Array.from(dismissedIds).filter((id) => historyIds.has(id)));
-    if (activeDismissedIds.size !== dismissedIds.size) {
-      dismissedIds.clear();
-      activeDismissedIds.forEach((id) => dismissedIds.add(id));
-      persistDismissedOverlayIds(dismissedIds);
-    }
-    const availableEntries = await findAvailableOverlayEntries(history);
-    setEntries(
-      availableEntries
-        .filter((entry) => !dismissedIds.has(entry.id))
-        .slice(0, MAX_OVERLAY_ENTRIES),
-    );
-  }, []);
-
   const dismissEntry = useCallback((id: string) => {
     const dismissedIds = dismissedEntryIdsRef.current;
     dismissedIds.add(id);
@@ -159,17 +127,21 @@ export default function OverlayPage() {
     document.documentElement.classList.add("overlay-window");
     document.body.classList.add("overlay-window");
     reloadSettings();
-    void hydrateRecent().catch(() => undefined);
 
     const disposers: Array<() => void> = [];
-    void nativeRuntime.onShotCaptured((next) => {
-      if (dismissedEntryIdsRef.current.has(next.id)) return;
-      setEntries((current) => upsertOverlayEntry(current, next, dismissedEntryIdsRef.current));
+    void nativeRuntime.onShotCaptured(({ kind, entry }) => {
+      if (dismissedEntryIdsRef.current.has(entry.id)) return;
+      setEntries((current) => {
+        if (kind === "updated") {
+          if (!current.some((item) => item.id === entry.id)) return current;
+          return current.map((item) => (item.id === entry.id ? entry : item));
+        }
+        return upsertOverlayEntry(current, entry, dismissedEntryIdsRef.current);
+      });
       revealForCapture();
     }).then((dispose) => disposers.push(dispose));
     void nativeRuntime.onResultOverlayOpened(() => {
-      void hydrateRecent().catch(() => undefined);
-      revealForCapture();
+      if (entriesRef.current.length > 0) revealForCapture();
     }).then((dispose) => disposers.push(dispose));
     void nativeRuntime.onResultOverlayToggleRequested(() => {
       clearTimer();
@@ -190,12 +162,27 @@ export default function OverlayPage() {
       document.body.classList.remove("overlay-window");
       disposers.forEach((dispose) => dispose());
     };
-  }, [clearTimer, collapsedState, hydrateRecent, reloadSettings, revealForCapture]);
+  }, [clearTimer, collapsedState, reloadSettings, revealForCapture]);
 
   useEffect(() => {
+    const state = entries.length ? presentation : "hidden";
+    const transitionId = ++transitionIdRef.current;
+    if (state === "hidden") {
+      setTransitioning(false);
+      void nativeRuntime.setOverlayPresentation(0, "hidden", settings.overlayCorner).catch(() => undefined);
+      return;
+    }
+    setTransitioning(true);
     void nativeRuntime
-      .setOverlayPresentation(entries.length, entries.length ? presentation : "hidden", settings.overlayCorner)
-      .catch(() => undefined);
+      .setOverlayPresentation(entries.length, state, settings.overlayCorner)
+      .then(() => {
+        window.requestAnimationFrame(() => {
+          if (transitionId === transitionIdRef.current) setTransitioning(false);
+        });
+      })
+      .catch(() => {
+        if (transitionId === transitionIdRef.current) setTransitioning(false);
+      });
   }, [entries.length, presentation, settings.overlayCorner]);
 
   useEffect(() => {
@@ -214,10 +201,12 @@ export default function OverlayPage() {
     setPresentation(collapsedState());
   };
 
+  if (presentation === "hidden") return null;
+
   if (presentation === "collapsed") {
     const collapsedOnRight = settings.overlayCorner.endsWith("right");
     return (
-      <main className="grid min-h-screen place-items-center bg-transparent p-1">
+      <main className={`grid min-h-screen place-items-center bg-transparent p-1 transition-opacity duration-200 ease-out motion-reduce:transition-none ${transitioning ? "pointer-events-none opacity-0" : "opacity-100"}`}>
         <button
           type="button"
           aria-label={text.open}
@@ -234,16 +223,16 @@ export default function OverlayPage() {
           }}
         >
           <span
-            className={`relative flex h-full w-full items-center justify-center overflow-hidden border border-primary/30 bg-primary/90 text-primary-foreground shadow-lg shadow-primary/25 transition-all duration-200 group-hover:bg-primary ${collapsedOnRight ? "rounded-l-xl" : "rounded-r-xl"}`}
+            className={`relative flex h-full w-full items-center justify-center overflow-hidden border border-border/80 bg-card/95 text-foreground shadow-lg shadow-black/20 transition-colors duration-200 group-hover:border-primary/60 group-hover:bg-card ${collapsedOnRight ? "rounded-l-lg" : "rounded-r-lg"}`}
           >
             <span
-              className={`absolute inset-y-2 w-0.5 rounded-full bg-primary-foreground/50 transition-all duration-200 group-hover:inset-y-1 group-hover:w-1 ${collapsedOnRight ? "right-1" : "left-1"}`}
+              className={`absolute inset-y-2 w-0.5 rounded-full bg-primary/75 transition-all duration-200 group-hover:inset-y-1 group-hover:w-1 ${collapsedOnRight ? "right-1" : "left-1"}`}
               aria-hidden="true"
             />
             <span
-              className={`relative grid h-9 w-3.5 place-items-center rounded-full bg-primary-foreground/15 ring-1 ring-primary-foreground/25 transition-transform duration-200 group-hover:scale-110 group-hover:bg-primary-foreground/25 ${collapsedOnRight ? "group-hover:-translate-x-0.5" : "group-hover:translate-x-0.5"}`}
+              className="relative grid h-8 w-7 place-items-center rounded-md bg-muted/80 text-muted-foreground ring-1 ring-border/80 transition-colors duration-200 group-hover:bg-accent group-hover:text-accent-foreground"
             >
-              {collapsedOnRight ? <ChevronLeft className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+              {collapsedOnRight ? <PanelRightOpen className="h-4 w-4" /> : <PanelLeftOpen className="h-4 w-4" />}
             </span>
           </span>
         </button>
@@ -253,7 +242,7 @@ export default function OverlayPage() {
 
   return (
     <main
-      className="flex min-h-screen w-full items-end bg-transparent p-2"
+      className={`flex min-h-screen w-full items-end bg-transparent p-2 transition-opacity duration-200 ease-out motion-reduce:transition-none ${transitioning ? "pointer-events-none opacity-0" : "opacity-100"}`}
       onMouseEnter={clearTimer}
       onMouseLeave={() => {
         if (manualPinned || settings.overlayVisibilityMode === "always-visible") return;

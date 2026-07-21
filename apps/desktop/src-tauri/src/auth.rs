@@ -3,7 +3,7 @@ use std::{
     sync::{Arc, Mutex},
     time::{SystemTime, UNIX_EPOCH},
 };
-use tauri::State;
+use tauri::{AppHandle, State};
 
 const CREDENTIAL_SERVICE: &str = "com.atrishub.shot";
 const CREDENTIAL_USER: &str = "atris-session";
@@ -93,29 +93,28 @@ pub fn revoke_product_access(gate: State<'_, AccessGate>) -> Result<(), String> 
 }
 
 #[tauri::command]
-pub fn store_session_token(token: String) -> Result<(), String> {
+pub fn store_session_token(app: AppHandle, token: String) -> Result<(), String> {
     if token.trim().is_empty() {
         return Err("Session token cannot be empty.".to_string());
     }
-    keyring::Entry::new(CREDENTIAL_SERVICE, CREDENTIAL_USER)
-        .map_err(|error| error.to_string())?
-        .set_password(&token)
-        .map_err(|error| format!("Session token could not be stored securely: {error}"))
+    crate::session_store::save(&app, &token)
 }
 
 #[tauri::command]
-pub fn read_session_token() -> Result<Option<String>, String> {
+pub fn read_session_token(app: AppHandle) -> Result<Option<String>, String> {
+    if let Some(token) = crate::session_store::load(&app)? { return Ok(Some(token)); }
     let entry = keyring::Entry::new(CREDENTIAL_SERVICE, CREDENTIAL_USER)
         .map_err(|error| error.to_string())?;
     match entry.get_password() {
-        Ok(token) => Ok(Some(token)),
+        Ok(token) => { if crate::session_store::save(&app, &token).is_ok() { let _ = entry.delete_credential(); } Ok(Some(token)) },
         Err(keyring::Error::NoEntry) => Ok(None),
         Err(error) => Err(format!("Session token could not be read securely: {error}")),
     }
 }
 
 #[tauri::command]
-pub fn delete_session_token() -> Result<(), String> {
+pub fn delete_session_token(app: AppHandle) -> Result<(), String> {
+    crate::session_store::clear(&app)?;
     let entry = keyring::Entry::new(CREDENTIAL_SERVICE, CREDENTIAL_USER)
         .map_err(|error| error.to_string())?;
     match entry.delete_credential() {

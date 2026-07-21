@@ -198,7 +198,7 @@ export function ShotEditorWindow() {
     }).then((dispose) => {
       unlistenEditor = dispose;
     });
-    void nativeRuntime.onShotCaptured((next) => {
+    void nativeRuntime.onShotCaptured(({ entry: next }) => {
       setEntry((current) => (current?.id === next.id ? next : current));
     }).then((dispose) => {
       unlistenShot = dispose;
@@ -357,6 +357,27 @@ function ShotEditor({
     return { x: Math.round(x), y: Math.round(y) };
   };
 
+  const canPanViewport = () => {
+    const viewport = viewportRef.current;
+    return Boolean(
+      viewport &&
+        (viewport.scrollWidth > viewport.clientWidth + 1 || viewport.scrollHeight > viewport.clientHeight + 1),
+    );
+  };
+
+  const beginPan = (event: PointerEvent<HTMLDivElement>) => {
+    if (!canPanViewport()) return false;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setPanInteractionSync({
+      x: event.clientX,
+      y: event.clientY,
+      scrollLeft: viewportRef.current?.scrollLeft || 0,
+      scrollTop: viewportRef.current?.scrollTop || 0,
+    });
+    return true;
+  };
+
   const updateAnnotation = (id: string, updater: (annotation: ShotAnnotation) => ShotAnnotation) => {
     setAnnotationsDirty(true);
     const next = annotationsRef.current.map((annotation) => (annotation.id === id ? updater(annotation) : annotation));
@@ -427,15 +448,8 @@ function ShotEditor({
 
   const startDrawing = (event: PointerEvent<HTMLDivElement>) => {
     if (!entry || (event.target as HTMLElement).closest("[data-editor-inline-text]")) return;
-    if (spacePressed) {
-      event.preventDefault();
-      event.currentTarget.setPointerCapture(event.pointerId);
-      setPanInteractionSync({
-        x: event.clientX,
-        y: event.clientY,
-        scrollLeft: viewportRef.current?.scrollLeft || 0,
-        scrollTop: viewportRef.current?.scrollTop || 0,
-      });
+    if (event.button === 1 || spacePressed) {
+      beginPan(event);
       return;
     }
     const point = pointFromEvent(event);
@@ -490,7 +504,10 @@ function ShotEditor({
 
     setEditingTextId(null);
     setSelectedAnnotationIdSync(null);
-    if (activeTool === "select") return;
+    if (activeTool === "select") {
+      if (event.button === 0) beginPan(event);
+      return;
+    }
 
     if (activeTool === "text") {
       const id = crypto.randomUUID();
@@ -699,6 +716,11 @@ function ShotEditor({
     setPanInteractionSync(null);
   };
 
+  const handleViewportPointerDown = (event: PointerEvent<HTMLDivElement>) => {
+    if (event.target !== event.currentTarget) return;
+    if (event.button === 1 || spacePressed) beginPan(event);
+  };
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
@@ -824,69 +846,72 @@ function ShotEditor({
       <section className="min-h-0 flex-1 overflow-hidden p-4">
         <div
           ref={viewportRef}
-          className={cn("relative flex h-full items-center justify-center overflow-auto rounded-lg border bg-card/40 p-4", spacePressed ? "cursor-grab" : "")}
+          className={cn("relative h-full overflow-auto rounded-lg border bg-card/40 p-4", spacePressed ? "cursor-grab" : "")}
           onWheel={handleWheel}
+          onPointerDown={handleViewportPointerDown}
           onPointerMove={handleViewportPointerMove}
           onPointerUp={handleViewportPointerUp}
           onPointerCancel={() => setPanInteractionSync(null)}
         >
-          {entry && fileMissing ? (
-            <EditorState icon={Image} title={text.localFileMissing} description={text.localFileMissingDescription} />
-          ) : entry && imageUrl ? (
-            <div
-              ref={canvasRef}
-              data-editor-canvas
-              className={cn("relative shrink-0 select-none overflow-hidden rounded-md border bg-background shadow-xl", spacePressed ? "cursor-grabbing" : activeTool === "select" ? "cursor-default" : "cursor-crosshair")}
-              style={{ width: entry.width * zoomScale, height: entry.height * zoomScale }}
-              onPointerDown={startDrawing}
-              onPointerMove={continueDrawing}
-              onPointerUp={finishDrawing}
-              onPointerCancel={() => {
-                setDrawingIdSync(null);
-                setPendingDrawSync(null);
-                setEditInteractionSync(null);
-                setPanInteractionSync(null);
-              }}
-              onLostPointerCapture={() => {
-                setDrawingIdSync(null);
-                setPendingDrawSync(null);
-                setEditInteractionSync(null);
-                setPanInteractionSync(null);
-              }}
-            >
-              <img src={imageUrl} alt="" decoding="async" draggable={false} className="absolute inset-0 h-full w-full select-none object-fill" />
-              {annotations.map((annotation, index) => (
-                <AnnotationPreview
-                  key={annotation.id}
-                  entry={entry}
-                  annotation={annotation}
-                  displayScale={zoomScale}
-                  fallbackOffset={index}
-                  selected={selectedAnnotationId === annotation.id}
-                  editing={editingTextId === annotation.id}
-                  textInputRef={editingTextId === annotation.id ? textInputRef : undefined}
-                  onTextChange={(value, element) => updateTextBox(annotation.id, value, element)}
-                  onTextCommit={() => finishTextEdit(annotation.id)}
-                  onTextCancel={() => removeAnnotation(annotation.id)}
-                  onTextEdit={() => setEditingTextId(annotation.id)}
-                />
-              ))}
-            </div>
-          ) : (
-            <EditorState
-              icon={Image}
-              title={status === "Empty" ? text.noScreenshot : imageFailed ? text.previewUnavailable : text.loading}
-              description={
-                status === "Empty"
-                  ? text.emptyDescription
-                  : imageFailed
-                    ? text.previewUnavailableDescription
-                    : entry
-                      ? `${entry.width} x ${entry.height}`
-                      : loadError || text.preparing
-              }
-            />
-          )}
+          <div className="grid min-h-full min-w-full place-items-center">
+            {entry && fileMissing ? (
+              <EditorState icon={Image} title={text.localFileMissing} description={text.localFileMissingDescription} />
+            ) : entry && imageUrl ? (
+              <div
+                ref={canvasRef}
+                data-editor-canvas
+                className={cn("relative shrink-0 select-none overflow-hidden rounded-md border bg-background shadow-xl", spacePressed ? "cursor-grabbing" : activeTool === "select" && zoomMode === "manual" ? "cursor-grab" : activeTool === "select" ? "cursor-default" : "cursor-crosshair")}
+                style={{ width: entry.width * zoomScale, height: entry.height * zoomScale }}
+                onPointerDown={startDrawing}
+                onPointerMove={continueDrawing}
+                onPointerUp={finishDrawing}
+                onPointerCancel={() => {
+                  setDrawingIdSync(null);
+                  setPendingDrawSync(null);
+                  setEditInteractionSync(null);
+                  setPanInteractionSync(null);
+                }}
+                onLostPointerCapture={() => {
+                  setDrawingIdSync(null);
+                  setPendingDrawSync(null);
+                  setEditInteractionSync(null);
+                  setPanInteractionSync(null);
+                }}
+              >
+                <img src={imageUrl} alt="" decoding="async" draggable={false} className="absolute inset-0 h-full w-full select-none object-fill" />
+                {annotations.map((annotation, index) => (
+                  <AnnotationPreview
+                    key={annotation.id}
+                    entry={entry}
+                    annotation={annotation}
+                    displayScale={zoomScale}
+                    fallbackOffset={index}
+                    selected={selectedAnnotationId === annotation.id}
+                    editing={editingTextId === annotation.id}
+                    textInputRef={editingTextId === annotation.id ? textInputRef : undefined}
+                    onTextChange={(value, element) => updateTextBox(annotation.id, value, element)}
+                    onTextCommit={() => finishTextEdit(annotation.id)}
+                    onTextCancel={() => removeAnnotation(annotation.id)}
+                    onTextEdit={() => setEditingTextId(annotation.id)}
+                  />
+                ))}
+              </div>
+            ) : (
+              <EditorState
+                icon={Image}
+                title={status === "Empty" ? text.noScreenshot : imageFailed ? text.previewUnavailable : text.loading}
+                description={
+                  status === "Empty"
+                    ? text.emptyDescription
+                    : imageFailed
+                      ? text.previewUnavailableDescription
+                      : entry
+                        ? `${entry.width} x ${entry.height}`
+                        : loadError || text.preparing
+                }
+              />
+            )}
+          </div>
 
           <div className="pointer-events-none absolute bottom-3 left-3 flex items-center gap-2">
             <Badge>{status}</Badge>

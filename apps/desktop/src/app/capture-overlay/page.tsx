@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import { Crop, Image, LoaderCircle, MousePointer2, X } from "lucide-react";
-import type { CaptureRegion, DisplayInfo, ShotSettings, WindowTarget } from "@atris-shot/shot-core";
+import type { CaptureOverlayOpenedPayload, CaptureRegion, DisplayInfo, ShotSettings, VirtualDisplayBounds, WindowTarget } from "@atris-shot/shot-core";
 import { DEFAULT_SHOT_SETTINGS } from "@atris-shot/shot-core";
 import { Button } from "@/components/ui/button";
 import { loadDesktopSettings } from "@/lib/desktop-settings";
@@ -40,6 +40,8 @@ export default function CaptureOverlayPage() {
   const { locale } = useUiPreferences();
   const text = overlayCopy[locale];
   const [displays, setDisplays] = useState<DisplayInfo[]>([]);
+  const [virtualBounds, setVirtualBounds] = useState<VirtualDisplayBounds | null>(null);
+  const [topologyReady, setTopologyReady] = useState(false);
   const [settings, setSettings] = useState<ShotSettings>(DEFAULT_SHOT_SETTINGS);
   const [drag, setDrag] = useState<DragState>(null);
   const [hoverTarget, setHoverTarget] = useState<WindowTarget | null>(null);
@@ -47,9 +49,10 @@ export default function CaptureOverlayPage() {
   const [capturing, setCapturing] = useState(false);
   const [error, setError] = useState("");
   const pointerStarted = useRef(false);
+  const topologySequenceRef = useRef(0);
   const lookupRef = useRef<{ timer: number | null; running: boolean; sequence: number }>({ timer: null, running: false, sequence: 0 });
 
-  const bounds = useMemo(() => getVirtualBounds(displays), [displays]);
+  const bounds = useMemo(() => virtualBounds || getVirtualBounds(displays), [displays, virtualBounds]);
   const primaryDisplay = displays.find((display) => display.primary) || displays[0];
   const scale = useMemo(
     () => ({
@@ -70,6 +73,7 @@ export default function CaptureOverlayPage() {
 
   const capture = useCallback(
     async (region: CaptureRegion | null, targetDisplay?: DisplayInfo, windowTarget?: WindowTarget | null) => {
+      if (!topologyReady) return false;
       const target =
         targetDisplay ||
         (region ? displayForRegion(displays, region) : null) ||
@@ -118,12 +122,12 @@ export default function CaptureOverlayPage() {
         setCapturing(false);
       }
     },
-    [displays, primaryDisplay, settings, text.displayUnavailable],
+    [displays, primaryDisplay, settings, text.displayUnavailable, topologyReady],
   );
 
   const updateHoveredWindow = useCallback(
     async () => {
-      if (capturing || drag) return;
+      if (!topologyReady || capturing || drag) return;
       lookupRef.current.running = true;
       try {
         const sequence = ++lookupRef.current.sequence;
@@ -135,7 +139,7 @@ export default function CaptureOverlayPage() {
         lookupRef.current.running = false;
       }
     },
-    [capturing, drag],
+    [capturing, drag, topologyReady],
   );
 
   const scheduleHoverLookup = useCallback(
@@ -155,10 +159,24 @@ export default function CaptureOverlayPage() {
     const updateViewport = () => setViewport({ width: window.innerWidth, height: window.innerHeight });
     updateViewport();
     window.addEventListener("resize", updateViewport);
-    void nativeRuntime.listDisplays().then(setDisplays).catch((reason) => setError(String(reason)));
+    const initialTopologySequence = ++topologySequenceRef.current;
+    void nativeRuntime
+      .listDisplays()
+      .then((nextDisplays) => {
+        if (initialTopologySequence !== topologySequenceRef.current) return;
+        setDisplays(nextDisplays);
+        setVirtualBounds(getVirtualBounds(nextDisplays));
+        setTopologyReady(nextDisplays.length > 0);
+      })
+      .catch((reason) => {
+        if (initialTopologySequence !== topologySequenceRef.current) return;
+        setTopologyReady(false);
+        setError(String(reason));
+      });
     void loadDesktopSettings().then(setSettings).catch(() => undefined);
     let unlistenOpened: (() => void) | undefined;
-    void nativeRuntime.onCaptureOverlayOpened(() => {
+    void nativeRuntime.onCaptureOverlayOpened((payload: CaptureOverlayOpenedPayload) => {
+      topologySequenceRef.current += 1;
       if (lookupRef.current.timer) {
         window.clearTimeout(lookupRef.current.timer);
         lookupRef.current.timer = null;
@@ -169,6 +187,10 @@ export default function CaptureOverlayPage() {
       setDrag(null);
       setHoverTarget(null);
       setError("");
+      setTopologyReady(false);
+      setDisplays(payload.displays);
+      setVirtualBounds(payload.bounds);
+      setTopologyReady(payload.displays.length > 0);
     }).then((dispose) => {
       unlistenOpened = dispose;
     });
@@ -184,7 +206,7 @@ export default function CaptureOverlayPage() {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") void nativeRuntime.hideCaptureOverlay();
-      if (event.key === "Enter" && !capturing) {
+      if (event.key === "Enter" && topologyReady && !capturing) {
         event.preventDefault();
         void capture(
           hoverTarget?.region || null,
@@ -197,10 +219,10 @@ export default function CaptureOverlayPage() {
     return () => {
       window.removeEventListener("keydown", onKeyDown);
     };
-  }, [capture, capturing, displays, hoverTarget, primaryDisplay]);
+  }, [capture, capturing, displays, hoverTarget, primaryDisplay, topologyReady]);
 
   const onPointerDown = (event: PointerEvent<HTMLElement>) => {
-    if (capturing || (event.target as HTMLElement).closest("button")) return;
+    if (!topologyReady || capturing || (event.target as HTMLElement).closest("button")) return;
     event.currentTarget.setPointerCapture(event.pointerId);
     const point = toVirtualPoint(event);
     pointerStarted.current = true;

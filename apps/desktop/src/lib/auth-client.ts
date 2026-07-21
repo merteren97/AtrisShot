@@ -96,7 +96,7 @@ export async function login(email: string, password: string, rememberSession = t
 export async function restoreSession(): Promise<ShotSession> {
   const cached = readMetadata();
   const token = isNativeRuntime() ? await nativeRuntime.readSessionToken() : undefined;
-  if (!token || !cached.user) {
+  if (!token) {
     if (!token && cached.user) localStorage.removeItem(SESSION_META_KEY);
     return signedOut();
   }

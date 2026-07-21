@@ -28,6 +28,18 @@ export interface DisplayInfo {
   primary: boolean;
 }
 
+export interface VirtualDisplayBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface CaptureOverlayOpenedPayload {
+  displays: DisplayInfo[];
+  bounds: VirtualDisplayBounds;
+}
+
 export interface CaptureRegion {
   displayId: string;
   x: number;
@@ -56,6 +68,13 @@ export interface ShotHistoryEntry {
   annotationsCount: number;
   editRevision: number;
   annotations?: ShotAnnotation[];
+}
+
+export type ShotHistoryEventKind = "created" | "updated";
+
+export interface ShotHistoryEvent {
+  kind: ShotHistoryEventKind;
+  entry: ShotHistoryEntry;
 }
 
 export type AnnotationTool = "rectangle" | "ellipse" | "line" | "arrow" | "pen" | "text" | "blur";

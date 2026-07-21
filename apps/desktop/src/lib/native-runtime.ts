@@ -5,7 +5,15 @@ import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { ask, open } from "@tauri-apps/plugin-dialog";
 import { LazyStore } from "@tauri-apps/plugin-store";
 import { startDrag } from "@crabnebula/tauri-plugin-drag";
-import type { CaptureRequest, CaptureResult, DisplayInfo, ShotHistoryEntry, WindowTarget } from "@atris-shot/shot-core";
+import type {
+  CaptureOverlayOpenedPayload,
+  CaptureRequest,
+  CaptureResult,
+  DisplayInfo,
+  ShotHistoryEntry,
+  ShotHistoryEvent,
+  WindowTarget,
+} from "@atris-shot/shot-core";
 
 export const isNativeRuntime = () =>
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -117,9 +125,10 @@ export const nativeRuntime = {
   openEditorWindow: (id: string) => invoke<void>("open_editor_window", { id }),
   hideEditorWindow: () => invoke<void>("hide_editor_window"),
   startDragging: () => getCurrentWindow().startDragging(),
-  emitShotCaptured: (entry: ShotHistoryEntry) => emit("shot-captured", entry),
-  onShotCaptured: (callback: (entry: ShotHistoryEntry) => void) =>
-    listen<ShotHistoryEntry>("shot-captured", (event) => callback(event.payload)),
+  emitShotCaptured: (entry: ShotHistoryEntry) =>
+    emit("shot-captured", { kind: "created", entry } satisfies ShotHistoryEvent),
+  onShotCaptured: (callback: (event: ShotHistoryEvent) => void) =>
+    listen<ShotHistoryEvent>("shot-captured", (event) => callback(event.payload)),
   emitEditShotRequested: (entry: ShotHistoryEntry) => emit("edit-shot-requested", entry),
   onEditShotRequested: (callback: (entry: ShotHistoryEntry) => void) =>
     listen<ShotHistoryEntry>("edit-shot-requested", (event) => callback(event.payload)),
@@ -128,8 +137,8 @@ export const nativeRuntime = {
   emitDesktopSettingsChanged: () => emit("desktop-settings-changed"),
   onDesktopSettingsChanged: (callback: () => void) =>
     listen("desktop-settings-changed", callback),
-  onCaptureOverlayOpened: (callback: () => void) =>
-    listen("capture-overlay-opened", callback),
+  onCaptureOverlayOpened: (callback: (payload: CaptureOverlayOpenedPayload) => void) =>
+    listen<CaptureOverlayOpenedPayload>("capture-overlay-opened", (event) => callback(event.payload)),
   onResultOverlayOpened: (callback: () => void) =>
     listen("result-overlay-opened", callback),
   onResultOverlayToggleRequested: (callback: () => void) =>

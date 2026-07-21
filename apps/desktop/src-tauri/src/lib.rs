@@ -22,6 +22,7 @@ use tauri::{
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
 mod auth;
+mod session_store;
 
 const DEFAULT_SHORTCUT: &str = "Ctrl+Shift+S";
 const DEFAULT_OVERLAY_SHORTCUT: &str = "Ctrl+Shift+O";
@@ -51,6 +52,22 @@ struct DisplayInfo {
     height: u32,
     scale_factor: f64,
     primary: bool,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct VirtualDisplayBounds {
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CaptureOverlayOpenedPayload {
+    displays: Vec<DisplayInfo>,
+    bounds: VirtualDisplayBounds,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -105,6 +122,13 @@ struct ShotHistoryEntry {
     edit_revision: u64,
     #[serde(default)]
     annotations: Vec<ShotAnnotation>,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ShotHistoryEvent {
+    kind: String,
+    entry: ShotHistoryEntry,
 }
 
 #[derive(Serialize)]
@@ -1301,7 +1325,13 @@ fn capture_shot(
     entries.insert(0, entry.clone());
     entries.truncate(normalized_history_limit(request.history_limit));
     persist_history(&app, &entries)?;
-    let _ = app.emit("shot-captured", entry.clone());
+    let _ = app.emit(
+        "shot-captured",
+        ShotHistoryEvent {
+            kind: "created".to_string(),
+            entry: entry.clone(),
+        },
+    );
     match request
         .post_capture_action
         .as_deref()
@@ -1444,7 +1474,13 @@ fn apply_annotations(
     entry.thumbnail_path = thumbnail_path.map(|path| display_path(&path));
     let next = entry.clone();
     persist_history(&app, &entries)?;
-    let _ = app.emit("shot-captured", next.clone());
+    let _ = app.emit(
+        "shot-captured",
+        ShotHistoryEvent {
+            kind: "updated".to_string(),
+            entry: next.clone(),
+        },
+    );
     Ok(next)
 }
 
@@ -1703,22 +1739,15 @@ fn overlay_position(
     }
 }
 
-fn position_overlay_window(app: &AppHandle, corner: &str) {
-    let Some(window) = app.get_webview_window("overlay") else {
-        return;
-    };
-    let monitor = window
-        .current_monitor()
-        .ok()
-        .flatten()
-        .or_else(|| app.primary_monitor().ok().flatten());
-    if let (Some(monitor), Ok(size)) = (monitor, window.outer_size()) {
-        let position = overlay_position(corner, monitor.position(), monitor.size(), &size);
-        let _ = window.set_position(Position::Physical(position));
+fn overlay_target_size(width: f64, height: f64, scale_factor: f64) -> PhysicalSize<u32> {
+    let scale_factor = scale_factor.max(0.1);
+    PhysicalSize {
+        width: (width * scale_factor).round().max(1.0) as u32,
+        height: (height * scale_factor).round().max(1.0) as u32,
     }
 }
 
-fn position_overlay_edge_window(app: &AppHandle, corner: &str) {
+fn position_overlay_window(app: &AppHandle, corner: &str, target_size: Option<PhysicalSize<u32>>) {
     let Some(window) = app.get_webview_window("overlay") else {
         return;
     };
@@ -1727,33 +1756,58 @@ fn position_overlay_edge_window(app: &AppHandle, corner: &str) {
         .ok()
         .flatten()
         .or_else(|| app.primary_monitor().ok().flatten());
-    if let (Some(monitor), Ok(size)) = (monitor, window.outer_size()) {
-        let monitor_position = monitor.position();
-        let monitor_size = monitor.size();
-        let right = monitor_position.x + monitor_size.width.saturating_sub(size.width) as i32;
-        let bottom = monitor_position.y
-            + monitor_size
-                .height
-                .saturating_sub(size.height.saturating_add(72)) as i32;
-        let position = match corner {
-            "bottom-right" => PhysicalPosition {
-                x: right,
-                y: bottom,
-            },
-            "top-left" => PhysicalPosition {
-                x: monitor_position.x,
-                y: monitor_position.y + 24,
-            },
-            "top-right" => PhysicalPosition {
-                x: right,
-                y: monitor_position.y + 24,
-            },
-            _ => PhysicalPosition {
-                x: monitor_position.x,
-                y: bottom,
-            },
-        };
-        let _ = window.set_position(Position::Physical(position));
+    if let Some(monitor) = monitor {
+        let size = target_size.or_else(|| window.outer_size().ok());
+        if let Some(size) = size {
+            let position = overlay_position(corner, monitor.position(), monitor.size(), &size);
+            let _ = window.set_position(Position::Physical(position));
+        }
+    }
+}
+
+fn position_overlay_edge_window(
+    app: &AppHandle,
+    corner: &str,
+    target_size: Option<PhysicalSize<u32>>,
+) {
+    let Some(window) = app.get_webview_window("overlay") else {
+        return;
+    };
+    let monitor = window
+        .current_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| app.primary_monitor().ok().flatten());
+    if let Some(monitor) = monitor {
+        let size = target_size.or_else(|| window.outer_size().ok());
+        if let Some(size) = size {
+            let monitor_position = monitor.position();
+            let monitor_size = monitor.size();
+            let right = monitor_position.x + monitor_size.width.saturating_sub(size.width) as i32;
+            let bottom = monitor_position.y
+                + monitor_size
+                    .height
+                    .saturating_sub(size.height.saturating_add(72)) as i32;
+            let position = match corner {
+                "bottom-right" => PhysicalPosition {
+                    x: right,
+                    y: bottom,
+                },
+                "top-left" => PhysicalPosition {
+                    x: monitor_position.x,
+                    y: monitor_position.y + 24,
+                },
+                "top-right" => PhysicalPosition {
+                    x: right,
+                    y: monitor_position.y + 24,
+                },
+                _ => PhysicalPosition {
+                    x: monitor_position.x,
+                    y: bottom,
+                },
+            };
+            let _ = window.set_position(Position::Physical(position));
+        }
     }
 }
 
@@ -1790,7 +1844,7 @@ fn set_overlay_presentation(
     }
 
     let (width, height) = if state == "collapsed" {
-        (18.0, 72.0)
+        (32.0, 64.0)
     } else {
         let item_count = item_count.clamp(1, 5);
         let desired_height = 16 + (item_count * 160) + (item_count.saturating_sub(1) * 12);
@@ -1799,11 +1853,20 @@ fn set_overlay_presentation(
             f64::from(desired_height.min(overlay_max_height(&app))),
         )
     };
+    let target_size = overlay_target_size(width, height, window.scale_factor().unwrap_or(1.0));
     let _ = window.set_size(Size::Logical(LogicalSize::new(width, height)));
     if state == "collapsed" {
-        position_overlay_edge_window(&app, overlay_corner.as_deref().unwrap_or("bottom-left"));
+        position_overlay_edge_window(
+            &app,
+            overlay_corner.as_deref().unwrap_or("bottom-left"),
+            Some(target_size),
+        );
     } else {
-        position_overlay_window(&app, overlay_corner.as_deref().unwrap_or("bottom-left"));
+        position_overlay_window(
+            &app,
+            overlay_corner.as_deref().unwrap_or("bottom-left"),
+            Some(target_size),
+        );
     }
     let _ = window.set_always_on_top(true);
     let _ = window.show();
@@ -1818,7 +1881,11 @@ fn set_overlay_stack_size(app: AppHandle, item_count: u32, overlay_corner: Optio
 fn show_overlay(app: AppHandle, overlay_corner: Option<String>) {
     configure_capture_exclusion(&app);
     if let Some(window) = app.get_webview_window("overlay") {
-        position_overlay_window(&app, overlay_corner.as_deref().unwrap_or("bottom-left"));
+        position_overlay_window(
+            &app,
+            overlay_corner.as_deref().unwrap_or("bottom-left"),
+            None,
+        );
         let _ = window.set_always_on_top(true);
         let _ = app.emit("result-overlay-opened", ());
         let _ = window.show();
@@ -1837,7 +1904,11 @@ fn toggle_overlay(app: AppHandle, overlay_corner: Option<String>) {
     configure_capture_exclusion(&app);
     if let Some(window) = app.get_webview_window("overlay") {
         if !window.is_visible().unwrap_or(false) {
-            position_overlay_window(&app, overlay_corner.as_deref().unwrap_or("bottom-left"));
+            position_overlay_window(
+                &app,
+                overlay_corner.as_deref().unwrap_or("bottom-left"),
+                None,
+            );
             let _ = window.set_always_on_top(true);
             let _ = window.show();
         }
@@ -1894,7 +1965,18 @@ fn try_show_capture_overlay(app: &AppHandle) -> Result<(), String> {
         restore_internal_windows_after_capture(app);
         return Err(error.to_string());
     }
-    let _ = app.emit("capture-overlay-opened", ());
+    let _ = app.emit(
+        "capture-overlay-opened",
+        CaptureOverlayOpenedPayload {
+            displays: display_list,
+            bounds: VirtualDisplayBounds {
+                x,
+                y,
+                width,
+                height,
+            },
+        },
+    );
     Ok(())
 }
 
@@ -2504,6 +2586,24 @@ mod tests {
         assert_eq!(
             overlay_position("top-right", &monitor_position, &monitor_size, &window_size),
             PhysicalPosition { x: 1676, y: 224 }
+        );
+    }
+
+    #[test]
+    fn overlay_target_size_scales_logical_dimensions() {
+        assert_eq!(
+            overlay_target_size(32.0, 64.0, 1.0),
+            PhysicalSize {
+                width: 32,
+                height: 64,
+            }
+        );
+        assert_eq!(
+            overlay_target_size(32.0, 64.0, 1.25),
+            PhysicalSize {
+                width: 40,
+                height: 80,
+            }
         );
     }
 

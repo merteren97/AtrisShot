@@ -285,7 +285,7 @@ export function ShotWorkspace({ session, onLogout }: { session: ShotSession; onL
     if (!isNativeRuntime()) return;
     let unlistenShot: (() => void) | undefined;
     let unlistenCaptureUnavailable: (() => void) | undefined;
-    void nativeRuntime.onShotCaptured((entry) => {
+    void nativeRuntime.onShotCaptured(({ entry }) => {
       setHistoryEntries((current) => {
         const next = [entry, ...current.filter((item) => item.id !== entry.id)];
         return next;
