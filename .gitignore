@@ -86,6 +86,9 @@ desktop.ini
 *.swo
 *~
 
+# Local release manifests and timing output
+.release-artifacts/
+
 # Scratch work and local automation state
 scratch/
 .tmp/

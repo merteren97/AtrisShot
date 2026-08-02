@@ -29,9 +29,14 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.rustTarget }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "./apps/desktop/src-tauri -> target"
+          shared-key: ${{ matrix.releaseTarget }}
+          cache-on-failure: true
       - if: startsWith(matrix.os, 'ubuntu')
         run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libsecret-1-dev libxdo-dev libxkbcommon-dev
-      - run: npm ci
+      - run: npm ci --include=dev --include=optional --prefer-offline --no-audit --no-fund
       - run: node .github/scripts/apply-release-version.mjs "${{ env.RELEASE_TAG }}"
         shell: bash
       - name: Inject updater public key
@@ -65,11 +70,13 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
           WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
-        run: npm run tauri -w @atris-shot/desktop -- build --target "${{ matrix.rustTarget }}"
+        run: npm run tauri:build -w @atris-shot/desktop -- --target "${{ matrix.rustTarget }}"
       - uses: actions/upload-artifact@v4
         with:
           name: atris-shot-${{ matrix.releaseTarget }}
           if-no-files-found: error
+          retention-days: 3
+          compression-level: 0
           path: |
             apps/desktop/src-tauri/target/**/release/bundle/**/*.exe
             apps/desktop/src-tauri/target/**/release/bundle/**/*.msi
@@ -98,8 +105,8 @@ jobs:
               "${FLAGS[@]}"
           fi
           test -n "$(find release-assets -type f -print -quit)"
-          find release-assets -type f -print0 \
-            | xargs -0 -n1 gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --clobber
+          mapfile -d '' RELEASE_ASSETS < <(find release-assets -type f -print0)
+          gh release upload "$RELEASE_TAG" "${RELEASE_ASSETS[@]}" --repo "$GITHUB_REPOSITORY" --clobber
       - name: Smoke updater metadata for release targets
         shell: bash
         run: |
