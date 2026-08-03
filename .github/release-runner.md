@@ -26,7 +26,7 @@ $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = '...'
 $env:TAURI_UPDATER_PUBLIC_KEY = '...'
 ```
 
-The public key is injected through `TAURI_CONFIG` for that build and is not written into the working tree. Keep all signing material outside Git. The Authenticode certificate remains optional and can be configured separately when a production certificate is available.
+The public key is passed to the Tauri CLI as a build-time `--config` JSON override and is not written into the working tree. Keep all signing material outside Git. The Authenticode certificate remains optional and can be configured separately when a production certificate is available.
 
 ## Automatic self-hosted release
 

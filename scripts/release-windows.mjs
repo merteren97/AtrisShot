@@ -10,8 +10,8 @@ const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "
 const isWindows = process.platform === "win32";
 const npmCommand = isWindows ? "npm.cmd" : "npm";
 const appName = "AtrisShot";
-const desktopWorkspace = "@atris-shot/desktop";
 const windowsTarget = "x86_64-pc-windows-msvc";
+const tauriCli = path.join(projectRoot, "node_modules", "@tauri-apps", "cli", "tauri.js");
 const releaseArtifactsRoot =
   process.env.ATRIS_RELEASE_ARTIFACTS_DIR || path.join(process.env.LOCALAPPDATA || os.homedir(), appName, "release-artifacts");
 const updaterPlaceholder = "REPLACE_WITH_PRODUCTION_TAURI_UPDATER_PUBLIC_KEY";
@@ -269,7 +269,7 @@ function configureUpdater(environment) {
   const configuredPublicKey = environment.TAURI_UPDATER_PUBLIC_KEY?.trim();
   const sourcePublicKey = sourceConfig.plugins?.updater?.pubkey?.trim();
   const publicKey = configuredPublicKey || sourcePublicKey;
-  if (!publicKey || publicKey === updaterPlaceholder) {
+  if (!publicKey || publicKey === updaterPlaceholder || publicKey.includes("PASTE_")) {
     throw new Error(
       "A production updater public key is required. Set TAURI_UPDATER_PUBLIC_KEY or replace the placeholder in apps/desktop/src-tauri/tauri.conf.json.",
     );
@@ -288,6 +288,7 @@ function configureUpdater(environment) {
     },
   };
   environment.TAURI_CONFIG = JSON.stringify(mergedConfig);
+  return environment.TAURI_CONFIG;
 }
 
 function walkFiles(directory) {
@@ -407,7 +408,7 @@ async function main() {
     console.log(`[release] Synchronized version: ${versions.rootPackage}`);
     timed("toolchain validation", () => assertRequiredTools(options.publish));
     const { environment, cacheRoot } = configureBuildEnvironment(options);
-    configureUpdater(environment);
+    const tauriConfig = configureUpdater(environment);
     console.log(`[release] Cache root: ${cacheRoot || "runner defaults"}`);
 
     if (await isPortListening(3009)) {
@@ -429,11 +430,13 @@ async function main() {
         }),
       );
     }
-    timed("Tauri Windows build", () =>
-      run(npmCommand, ["run", "tauri:build", "-w", desktopWorkspace, "--", "--target", options.target], {
-        env: environment,
-      }),
-    );
+    timed("Tauri Windows build", () => {
+      const tauriEnvironment = { ...environment };
+      delete tauriEnvironment.TAURI_CONFIG;
+      run(process.execPath, [tauriCli, "build", "--config", tauriConfig, "--target", options.target], {
+        env: tauriEnvironment,
+      });
+    });
     const { assets, bundleRoot } = timed("artifact verification", () =>
       collectReleaseAssets(environment, options.target, version),
     );
