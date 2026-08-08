@@ -1,0 +1,14 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "overlay-commands",
+  "description": "Only the commands required by the AtrisShot result overlay",
+  "windows": ["overlay"],
+  "permissions": [
+    "allow-copy-shot-image",
+    "allow-read-shot-data-url",
+    "allow-set-overlay-presentation",
+    "allow-hide-overlay",
+    "allow-open-editor-window",
+    "allow-set-tray-locale"
+  ]
+}
