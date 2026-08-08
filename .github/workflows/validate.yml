@@ -42,3 +42,33 @@ jobs:
       - run: cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml --check
       - run: cargo clippy --manifest-path apps/desktop/src-tauri/Cargo.toml -- -D warnings
       - run: cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
+
+  validate-artifact-roundtrip:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create deterministic validation payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifact-validation
+          printf '%s\n' 'AtrisShot artifact roundtrip validation' > artifact-validation/payload.txt
+          sha256sum artifact-validation/payload.txt > artifact-validation/payload.sha256
+      - name: Upload validation artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: atris-shot-artifact-validation
+          path: artifact-validation/payload.txt
+          if-no-files-found: error
+          retention-days: 1
+      - name: Download validation artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: atris-shot-artifact-validation
+          path: artifact-validation-downloaded
+      - name: Verify artifact integrity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f artifact-validation-downloaded/payload.txt
+          cmp artifact-validation/payload.txt artifact-validation-downloaded/payload.txt
+          sha256sum --check artifact-validation/payload.sha256

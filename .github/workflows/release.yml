@@ -55,7 +55,7 @@ jobs:
           WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
         run: |
           $certificatePath = Join-Path $env:RUNNER_TEMP "atrisshot-code-signing.pfx"
-          [IO.File]::WriteAllBytes($certificatePath, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE))
+          [IO.File]::WriteAllBytes($certificatePath, [Convert]::FromBase64String($env.WINDOWS_CERTIFICATE))
           $password = ConvertTo-SecureString $env:WINDOWS_CERTIFICATE_PASSWORD -AsPlainText -Force
           $certificate = Import-PfxCertificate -FilePath $certificatePath -CertStoreLocation Cert:\CurrentUser\My -Password $password
           if (-not $certificate.Thumbprint) { throw "Windows signing certificate import failed." }
@@ -71,7 +71,7 @@ jobs:
           WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
           WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
         run: npm run tauri:build -w @atris-shot/desktop -- --target "${{ matrix.rustTarget }}"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: atris-shot-${{ matrix.releaseTarget }}
           if-no-files-found: error
@@ -90,7 +90,7 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with: { path: release-assets, merge-multiple: true }
       - name: Publish GitHub Release
         env: { GH_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }
