@@ -23,6 +23,7 @@
     "test:runtime-boundary": "node scripts/test-runtime-boundary.mjs",
     "test:security-boundary": "node scripts/test-security-boundary.mjs",
     "test:public-source-secrets": "node scripts/test-public-source-secrets.mjs",
+    "audit:history-secrets": "node scripts/audit-git-history-secrets.mjs",
     "test:release-windows": "node scripts/test-release-windows.mjs",
     "test:settings": "tsx scripts/test-settings-normalization.mjs",
     "test:release-proxy": "npm run test:release-proxy -w @atris-shot/public-server",
