@@ -6,6 +6,19 @@ const trackedFiles = execFileSync("git", ["ls-files", "-z"], { encoding: "utf8" 
   .split("\0")
   .filter(Boolean);
 
+const forbiddenOperationalPaths = [
+  ".github/workflows/deploy.yml",
+  "ecosystem.config.cjs",
+  "infra/nginx/shot.atrishub.com.conf",
+];
+for (const path of forbiddenOperationalPaths) {
+  assert.equal(
+    trackedFiles.includes(path),
+    false,
+    `${path} contains private production operations and must not be tracked in public AtrisShot source`,
+  );
+}
+
 const obviousSecretPatterns = [
   ["GitHub classic PAT", /\bghp_[A-Za-z0-9]{30,}\b/g],
   ["GitHub fine-grained PAT", /\bgithub_pat_[A-Za-z0-9_]{20,}\b/g],

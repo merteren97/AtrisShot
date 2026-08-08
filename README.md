@@ -77,9 +77,8 @@ The repository is split so that the desktop capture runtime, public product site
 - `services/public-server` — landing delivery, release download routing, and Tauri updater metadata.
 - `packages` — shared contracts and reusable workspace packages.
 - `scripts` — validation, release, branding, and repository boundary checks.
-- `infra/nginx` — reference reverse-proxy configuration for the AtrisShot public service.
 
-AtrisHub itself is a separate service and is not bundled into this repository.
+AtrisHub itself is a separate service and is not bundled into this repository. Production infrastructure and deployment configuration are maintained separately in private Atris operations rather than in this public source tree.
 
 ## Supported platforms
 
@@ -155,7 +154,7 @@ npm run validate
 AtrisShot treats public-source hygiene as part of the build and validation process.
 
 - Environment files, private keys, certificates, local screenshots, app data, logs, and release scratch data are excluded from Git.
-- Production deployment credentials are consumed through GitHub Actions secrets, not stored in repository files.
+- Production infrastructure, deployment configuration, and server-access credentials are maintained separately in private Atris operations and are not part of this repository.
 - Production updater URLs are built from a configured/canonical trusted origin instead of client-controlled forwarding headers.
 - Private release proxy access is limited to assets belonging to the current latest release.
 - The production Tauri webview uses a restrictive Content Security Policy.

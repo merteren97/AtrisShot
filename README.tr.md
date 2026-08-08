@@ -77,9 +77,8 @@ Repository; masaüstü yakalama runtime'ı, public ürün sitesi ve release serv
 - `services/public-server` — landing sunumu, release indirme yönlendirmesi ve Tauri updater metadata servisi.
 - `packages` — ortak contract'lar ve yeniden kullanılabilir workspace paketleri.
 - `scripts` — validation, release, branding ve repository boundary kontrolleri.
-- `infra/nginx` — AtrisShot public servisi için referans reverse-proxy yapılandırması.
 
-AtrisHub'ın kendisi ayrı bir servistir ve bu repository içine dahil değildir.
+AtrisHub'ın kendisi ayrı bir servistir ve bu repository içine dahil değildir. Production altyapısı ve deployment yapılandırması bu public source tree yerine ayrı private Atris operasyonlarında tutulur.
 
 ## Desteklenen platformlar
 
@@ -155,7 +154,7 @@ npm run validate
 AtrisShot public-source hijyenini build ve validation sürecinin bir parçası olarak ele alır.
 
 - Environment dosyaları, private key'ler, sertifikalar, yerel ekran görüntüleri, uygulama verileri, loglar ve release scratch verileri Git dışında tutulur.
-- Production deployment credential'ları repository dosyalarına yazılmak yerine GitHub Actions secrets üzerinden kullanılır.
+- Production altyapısı, deployment yapılandırması ve sunucu erişim credential'ları ayrı private Atris operasyonlarında tutulur ve bu repository'nin parçası değildir.
 - Production updater URL'leri istemci tarafından kontrol edilebilen forwarding header'ları yerine yapılandırılmış/canonical güvenilir origin üzerinden oluşturulur.
 - Private release proxy erişimi mevcut latest release'e ait asset'lerle sınırlandırılır.
 - Production Tauri webview kısıtlayıcı bir Content Security Policy kullanır.

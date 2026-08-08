@@ -10,10 +10,8 @@ const [
   tauriConfigText,
   releaseProxy,
   publicServer,
-  nginx,
   validateWorkflow,
   releaseWorkflow,
-  deployWorkflow,
   gitignore,
   envExample,
   tauriBuild,
@@ -31,10 +29,8 @@ const [
   read("apps/desktop/src-tauri/tauri.conf.json"),
   read("services/public-server/src/release-proxy.ts"),
   read("services/public-server/src/server.ts"),
-  read("infra/nginx/shot.atrishub.com.conf"),
   read(".github/workflows/validate.yml"),
   read(".github/workflows/release.yml"),
-  read(".github/workflows/deploy.yml"),
   read(".gitignore"),
   read(".env.example"),
   read("apps/desktop/src-tauri/build.rs"),
@@ -147,20 +143,29 @@ assert.doesNotMatch(releaseProxy, /request\.get\("x-forwarded-proto"\)/i);
 assert.match(releaseProxy, /release\?\.assets\?\.some\(\(asset\) => asset\.id === assetId\)/);
 assert.match(publicServer, /app\.set\("trust proxy", "loopback"\)/);
 assert.match(publicServer, /releaseProxyReady\(\)/);
-assert.match(nginx, /proxy_set_header Host shot\.atrishub\.com;/);
-assert.match(nginx, /proxy_set_header X-Forwarded-Host "";/);
-assert.match(nginx, /proxy_set_header X-Forwarded-Proto https;/);
 
-// PR validation and production publishing follow least-privilege defaults.
+// Production infrastructure and deployment details belong to the private AtrisHub operations repository.
+for (const privateOpsPath of [
+  ".github/workflows/deploy.yml",
+  "ecosystem.config.cjs",
+  "infra/nginx/shot.atrishub.com.conf",
+]) {
+  assert.equal(
+    await exists(privateOpsPath),
+    false,
+    `${privateOpsPath} must not be tracked in the public AtrisShot repository`,
+  );
+}
+
+// PR validation and release publishing follow least-privilege defaults.
 assert.match(validateWorkflow, /pull_request:[\s\S]*branches:\s*\[main\]/);
 assert.match(validateWorkflow, /permissions:\s*\n\s*contents:\s*read/);
 assert.match(validateWorkflow, /cargo test --manifest-path apps\/desktop\/src-tauri\/Cargo\.toml/);
 assert.match(releaseWorkflow, /permissions:\s*\n\s*contents:\s*read/);
 assert.match(releaseWorkflow, /publish:[\s\S]*permissions:\s*\n\s*contents:\s*write/);
 assert.match(releaseWorkflow, /github\.actor == 'merteren97'/);
+assert.match(releaseWorkflow, /github\.triggering_actor == 'merteren97'/);
 assert.match(releaseWorkflow, /github\.ref == 'refs\/heads\/main'/);
-assert.match(deployWorkflow, /github\.actor == 'merteren97'/);
-assert.match(deployWorkflow, /github\.ref == 'refs\/heads\/main'/);
 assert.equal(
   await exists(".github/workflows/release-windows-self-hosted.yml"),
   false,

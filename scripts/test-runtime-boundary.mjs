@@ -30,6 +30,9 @@ const tauriConfig = JSON.parse(
 const tauriCapability = JSON.parse(
   await readFile(new URL("../apps/desktop/src-tauri/capabilities/default.json", import.meta.url), "utf8"),
 );
+const mainUiCapability = JSON.parse(
+  await readFile(new URL("../apps/desktop/src-tauri/capabilities/main-ui.json", import.meta.url), "utf8"),
+);
 const overlayDragCapability = JSON.parse(
   await readFile(new URL("../apps/desktop/src-tauri/capabilities/overlay-drag.json", import.meta.url), "utf8"),
 );
@@ -97,8 +100,11 @@ assert.equal(tauriConfig.app.windows.some((window) => window.label === "overlay"
 assert.equal(tauriConfig.app.windows.some((window) => window.label === "capture"), true);
 assert.equal(tauriConfig.app.windows.some((window) => window.label === "editor" && window.url === "/editor" && window.visible === false), true);
 assert.equal(tauriCapability.windows.includes("editor"), true);
-assert.equal(tauriCapability.permissions.includes("dialog:allow-open"), true);
-assert.equal(tauriCapability.permissions.includes("dialog:allow-ask"), true);
+assert.equal(tauriCapability.permissions.includes("dialog:allow-open"), false);
+assert.equal(tauriCapability.permissions.includes("dialog:allow-ask"), false);
+assert.deepEqual(mainUiCapability.windows, ["main"]);
+assert.equal(mainUiCapability.permissions.includes("dialog:allow-open"), true);
+assert.equal(mainUiCapability.permissions.includes("dialog:allow-ask"), true);
 assert.deepEqual(overlayDragCapability.windows, ["overlay"]);
 assert.equal(overlayDragCapability.permissions.includes("drag:allow-start-drag"), true);
 assert.match(JSON.stringify(tauriConfig.plugins.updater.endpoints), /shot\.atrishub\.com/);
@@ -113,9 +119,8 @@ const publicServer = await readFile(
 const releaseProxy = await readFile(new URL("../services/public-server/src/release-proxy.ts", import.meta.url), "utf8");
 const releaseProxyTest = await readFile(new URL("../services/public-server/src/test-release-proxy.ts", import.meta.url), "utf8");
 const releaseWorkflow = await readFile(new URL("../.github/workflows/release.yml", import.meta.url), "utf8");
-const deployWorkflow = await readFile(new URL("../.github/workflows/deploy.yml", import.meta.url), "utf8");
 const validateWorkflow = await readFile(new URL("../.github/workflows/validate.yml", import.meta.url), "utf8");
-const workflowSources = [releaseWorkflow, deployWorkflow, validateWorkflow].join("\n");
+const workflowSources = [releaseWorkflow, validateWorkflow].join("\n");
 assert.match(publicServer, /createReleaseRouter/);
 assert.match(publicServer, /trust proxy/);
 assert.match(releaseProxy, /resolvePublicBaseUrl/);
