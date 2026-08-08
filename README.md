@@ -182,6 +182,6 @@ Before proposing a large architectural change, opening an issue first is recomme
 
 ## License
 
-An explicit open-source license has **not been added yet**. Before the repository is made public as an open-source project, add a `LICENSE` file and update this section with the chosen license.
+AtrisShot is open-source software licensed under the **Apache License 2.0**. See [`LICENSE`](LICENSE) for the full license terms.
 
-Public repository visibility by itself does not grant open-source reuse rights.
+The Apache License covers the source code and does not grant trademark rights to the AtrisShot or AtrisHub names, logos, or other brand identifiers.

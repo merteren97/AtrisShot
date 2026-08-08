@@ -182,6 +182,6 @@ Büyük bir mimari değişiklik önermeden önce aynı işin iki kez yapılması
 
 ## Lisans
 
-Henüz açık bir open-source lisansı **eklenmedi**. Repository open-source proje olarak public yapılmadan önce bir `LICENSE` dosyası eklenmeli ve bu bölüm seçilen lisansla güncellenmelidir.
+AtrisShot, **Apache License 2.0** altında lisanslanan açık kaynaklı bir yazılımdır. Lisans koşullarının tamamı için [`LICENSE`](LICENSE) dosyasına bakabilirsin.
 
-Repository'nin yalnızca public görünür olması tek başına open-source yeniden kullanım hakkı vermez.
+Apache License kaynak kodu kapsar; AtrisShot veya AtrisHub adları, logoları ve diğer marka unsurları için trademark kullanım hakkı vermez.
