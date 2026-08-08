@@ -48,9 +48,10 @@ assert.doesNotMatch(
 assert.match(tauriConfig.app.security.devCsp["connect-src"], /http:\/\/127\.0\.0\.1:3000/);
 assert.match(tauriConfig.app.security.devCsp["connect-src"], /ws:\/\/localhost:3009/);
 
-// Updater metadata must only use a configured trusted origin in production.
+// Updater metadata must only use a configured or fixed trusted origin in production.
 assert.match(releaseProxy, /normalizeBaseUrl/);
-assert.match(releaseProxy, /process\.env\.NODE_ENV === "production" \? ""/);
+assert.match(releaseProxy, /DEFAULT_PRODUCTION_PUBLIC_BASE_URL = "https:\/\/shot\.atrishub\.com"/);
+assert.match(releaseProxy, /isLoopbackBaseUrl\(trimmed\)\) return DEFAULT_PRODUCTION_PUBLIC_BASE_URL/);
 assert.match(releaseProxy, /releaseProxyReady/);
 assert.doesNotMatch(releaseProxy, /request\.get\("x-forwarded-host"\)/i);
 assert.doesNotMatch(releaseProxy, /request\.get\("x-forwarded-proto"\)/i);
