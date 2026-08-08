@@ -90,6 +90,9 @@ await withReleaseServer(fetchImpl, async (port) => {
   assert(platformDownload.headers.get("location") === "/api/releases/download/1", "platform download must use the public proxy");
 });
 
+// localhost env must not leak into production updater metadata. A production
+// service with no trusted canonical base URL fails closed even if Host or
+// forwarded headers are attacker-controlled.
 const previousNodeEnv = process.env.NODE_ENV;
 const previousPublicBaseUrl = process.env.SHOT_PUBLIC_BASE_URL;
 process.env.NODE_ENV = "production";
