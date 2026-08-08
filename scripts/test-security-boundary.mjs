@@ -55,6 +55,7 @@ assert.match(releaseProxy, /isLoopbackBaseUrl\(trimmed\)\) return DEFAULT_PRODUC
 assert.match(releaseProxy, /releaseProxyReady/);
 assert.doesNotMatch(releaseProxy, /request\.get\("x-forwarded-host"\)/i);
 assert.doesNotMatch(releaseProxy, /request\.get\("x-forwarded-proto"\)/i);
+assert.match(releaseProxy, /release\?\.assets\?\.some\(\(asset\) => asset\.id === assetId\)/);
 assert.match(publicServer, /app\.set\("trust proxy", "loopback"\)/);
 assert.match(publicServer, /releaseProxyReady\(\)/);
 assert.match(nginx, /proxy_set_header Host shot\.atrishub\.com;/);
