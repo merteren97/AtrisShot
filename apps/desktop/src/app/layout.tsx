@@ -1,7 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { UiPreferencesProvider } from "@/lib/ui-preferences";
-import { DesktopUpdater } from "@/components/desktop-updater";
 
 export const metadata: Metadata = {
   title: "AtrisShot",
@@ -26,7 +25,7 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en">
-      <body><UiPreferencesProvider><DesktopUpdater />{children}</UiPreferencesProvider></body>
+      <body><UiPreferencesProvider>{children}</UiPreferencesProvider></body>
     </html>
   );
 }
