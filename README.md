@@ -13,7 +13,7 @@ The app follows the existing Atris desktop product split:
 - Free, Premium, and Admin Atris accounts can access the app.
 - Screenshots, annotations, history, and saved paths stay on the local device.
 - Users can copy the image, copy the saved path, or show a draggable corner result overlay after capture.
-- The editor foundation supports simple annotations such as pen, rectangle, arrow, highlight, and text.
+- The editor supports pen, rectangle, ellipse, line, arrow, text, and blur annotations with configurable styling.
 - GitHub Actions release artifacts feed the public release proxy and Tauri updater.
 
 ## Development
@@ -23,6 +23,8 @@ npm.cmd install --cache .npm-cache
 npm.cmd run dev:local
 npm.cmd run typecheck
 npm.cmd run test:runtime-boundary
+npm.cmd run test:security-boundary
+npm.cmd run validate
 npm.cmd run build
 npm.cmd run build:landing
 npm.cmd run build:public
