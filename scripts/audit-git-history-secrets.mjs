@@ -35,17 +35,17 @@ function isLikelyText(buffer) {
 function isPublicIpv4(value) {
   const parts = value.split(".").map(Number);
   if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return false;
-  const [a, b] = parts;
+  const [a, b, c] = parts;
   if (a === 0 || a === 10 || a === 127 || a >= 224) return false;
+  if (a === 100 && b >= 64 && b <= 127) return false;
   if (a === 169 && b === 254) return false;
   if (a === 172 && b >= 16 && b <= 31) return false;
   if (a === 192 && b === 168) return false;
-  if (a === 100 && b >= 64 && b <= 127) return false;
   if (a === 198 && (b === 18 || b === 19)) return false;
-  if (a === 192 && b === 0) return false;
-  if (a === 192 && b === 0) return false;
-  if (a === 192 && b === 0) return false;
-  if (a === 192 && b === 0) return false;
+  // Documentation / benchmarking ranges are not production addresses.
+  if (a === 192 && b === 0 && (c === 0 || c === 2)) return false;
+  if (a === 198 && b === 51 && c === 100) return false;
+  if (a === 203 && b === 0 && c === 113) return false;
   return true;
 }
 
@@ -159,7 +159,7 @@ for (const line of identityLines) {
   const [commit, authorEmail = "", committerEmail = ""] = line.split("\t");
   for (const email of new Set([authorEmail, committerEmail])) {
     if (email && !/@users\.noreply\.github\.com$/i.test(email) && !/^(?:noreply|actions)@github\.com$/i.test(email)) {
-      addFinding(review, { rule: "public-commit-email-review", object: commit, path: email });
+      addFinding(review, { rule: "public-commit-email-review", object: commit, path: "<non-noreply-email>" });
     }
   }
 }
