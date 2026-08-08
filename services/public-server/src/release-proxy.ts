@@ -7,11 +7,12 @@ type Options = { fetchImpl?: typeof fetch; publicBaseUrl?: string };
 type ReleaseRepository = { owner: string; repo: string };
 
 const GITHUB_REPOSITORY_SEGMENT = /^[A-Za-z0-9_.-]{1,100}$/;
+const DEFAULT_PRODUCTION_PUBLIC_BASE_URL = "https://shot.atrishub.com";
 
 function isLoopbackBaseUrl(value: string) {
   try {
     const hostname = new URL(value).hostname.toLowerCase();
-    return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+    return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1" || hostname === "[::1]";
   } catch {
     return false;
   }
@@ -36,9 +37,20 @@ function normalizeBaseUrl(value: string | undefined, allowLoopback: boolean) {
   }
 }
 
+function configuredPublicBaseUrl(value: string | undefined) {
+  const trimmed = value?.trim();
+  if (process.env.NODE_ENV === "production") {
+    // Preserve deployments that still carry the historical localhost value,
+    // but never derive a public updater origin from client-controlled headers.
+    if (!trimmed || isLoopbackBaseUrl(trimmed)) return DEFAULT_PRODUCTION_PUBLIC_BASE_URL;
+    return normalizeBaseUrl(trimmed, false);
+  }
+  return normalizeBaseUrl(trimmed, true);
+}
+
 // Security boundary: x-forwarded-host and x-forwarded-proto are intentionally
-// not used to construct public updater URLs. Production requires an explicit,
-// canonical SHOT_PUBLIC_BASE_URL; only loopback development can derive Host.
+// not used to construct public updater URLs. Production uses only the configured
+// canonical origin or the fixed AtrisShot origin; local dev may derive loopback Host.
 function localRequestBaseUrl(request: Request) {
   const host = request.get("host")?.trim();
   if (!host) return "";
@@ -47,7 +59,7 @@ function localRequestBaseUrl(request: Request) {
 }
 
 export function resolvePublicBaseUrl(request: Request, configuredBaseUrl?: string) {
-  const configured = normalizeBaseUrl(configuredBaseUrl, process.env.NODE_ENV !== "production");
+  const configured = configuredPublicBaseUrl(configuredBaseUrl);
   if (configured) return configured;
   return process.env.NODE_ENV === "production" ? "" : localRequestBaseUrl(request);
 }
@@ -60,10 +72,7 @@ function releaseRepository(): ReleaseRepository | null {
 }
 
 export function releaseProxyReady() {
-  return Boolean(
-    releaseRepository() &&
-    normalizeBaseUrl(process.env.SHOT_PUBLIC_BASE_URL, process.env.NODE_ENV !== "production"),
-  );
+  return Boolean(releaseRepository() && configuredPublicBaseUrl(process.env.SHOT_PUBLIC_BASE_URL));
 }
 
 export function semverCompare(a: string, b: string) {
