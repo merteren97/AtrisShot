@@ -26,7 +26,7 @@ fn remove_legacy_file(app: &AppHandle) -> Result<(), String> {
 fn crypt(data: &[u8], decrypt: bool) -> Result<Vec<u8>, String> {
     use windows_sys::Win32::Foundation::LocalFree;
     use windows_sys::Win32::Security::Cryptography::{
-        CryptProtectData, CryptUnprotectData, CRYPT_INTEGER_BLOB, CRYPTPROTECT_UI_FORBIDDEN,
+        CryptProtectData, CryptUnprotectData, CRYPTPROTECT_UI_FORBIDDEN, CRYPT_INTEGER_BLOB,
     };
 
     let mut input = CRYPT_INTEGER_BLOB {
@@ -63,7 +63,8 @@ fn crypt(data: &[u8], decrypt: bool) -> Result<Vec<u8>, String> {
     if ok == 0 {
         return Err("Windows DPAPI operation failed.".into());
     }
-    let bytes = unsafe { std::slice::from_raw_parts(output.pbData, output.cbData as usize).to_vec() };
+    let bytes =
+        unsafe { std::slice::from_raw_parts(output.pbData, output.cbData as usize).to_vec() };
     unsafe {
         LocalFree(output.pbData as _);
     }
@@ -103,7 +104,9 @@ pub fn load(app: &AppHandle) -> Result<Option<String>, String> {
         match fs::read(path(app)?) {
             Ok(bytes) => {
                 let bytes = crypt(&bytes, true)?;
-                String::from_utf8(bytes).map(Some).map_err(|error| error.to_string())
+                String::from_utf8(bytes)
+                    .map(Some)
+                    .map_err(|error| error.to_string())
             }
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
             Err(error) => Err(error.to_string()),
