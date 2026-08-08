@@ -90,9 +90,9 @@ await withReleaseServer(fetchImpl, async (port) => {
   assert(platformDownload.headers.get("location") === "/api/releases/download/1", "platform download must use the public proxy");
 });
 
-// localhost env must not leak into production updater metadata. A production
-// service with no trusted canonical base URL fails closed even if Host or
-// forwarded headers are attacker-controlled.
+// localhost env must not leak into production updater metadata. The historical
+// localhost deployment value is safely mapped to the fixed canonical AtrisShot
+// origin and never replaced with attacker-controlled Host/forwarded values.
 const previousNodeEnv = process.env.NODE_ENV;
 const previousPublicBaseUrl = process.env.SHOT_PUBLIC_BASE_URL;
 process.env.NODE_ENV = "production";
@@ -105,7 +105,9 @@ await withReleaseServer(fetchImpl, async (port) => {
       "x-forwarded-proto": "https",
     },
   });
-  assert(update.status === 503, "production updater metadata must fail closed without a trusted public base URL");
+  assert(update.status === 200, "production updater metadata must retain the canonical AtrisShot fallback");
+  const body = await update.json();
+  assert(body.url === "https://shot.atrishub.com/api/releases/download/1", "production localhost fallback must resolve only to the canonical AtrisShot origin");
 }, "");
 if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
 else process.env.NODE_ENV = previousNodeEnv;
