@@ -1,0 +1,14 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "capture-commands",
+  "description": "Only the commands required by the full-screen capture overlay",
+  "windows": ["capture"],
+  "permissions": [
+    "allow-list-displays",
+    "allow-capture-shot",
+    "allow-window-target-at-cursor",
+    "allow-show-capture-overlay",
+    "allow-hide-capture-overlay",
+    "allow-set-tray-locale"
+  ]
+}
