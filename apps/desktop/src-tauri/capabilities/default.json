@@ -9,8 +9,6 @@
     "core:window:allow-outer-position",
     "core:window:allow-outer-size",
     "store:allow-get",
-    "store:allow-set",
-    "store:allow-save",
     "store:allow-load"
   ]
 }
