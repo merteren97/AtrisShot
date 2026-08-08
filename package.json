@@ -26,6 +26,6 @@
     "test:release-proxy": "npm run test:release-proxy -w @atris-shot/public-server",
     "brand:generate": "node scripts/generate-brand-assets.mjs && npm run tauri -w @atris-shot/desktop -- icon src-tauri/icons/source-master.png && node scripts/sync-brand-icon-containers.mjs",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "validate": "npm run typecheck && npm run test:runtime-boundary && npm run test:release-windows && npm run build && npm run build:landing && npm run build:public"
+    "validate": "npm run typecheck && npm run test:runtime-boundary && npm run test:settings && npm run test:release-proxy && npm run test:release-windows && npm run build && npm run build:landing && npm run build:public"
   }
 }
