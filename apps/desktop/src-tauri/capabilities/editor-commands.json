@@ -1,0 +1,16 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "editor-commands",
+  "description": "Only the commands required by the AtrisShot editor window",
+  "windows": ["editor"],
+  "permissions": [
+    "allow-list-shot-history",
+    "allow-path-exists",
+    "allow-read-shot-data-url",
+    "allow-apply-annotations",
+    "allow-show-overlay",
+    "allow-hide-editor-window",
+    "allow-set-tray-locale",
+    "allow-restart-application"
+  ]
+}
