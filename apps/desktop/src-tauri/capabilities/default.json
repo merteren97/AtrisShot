@@ -1,21 +1,13 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "AtrisShot desktop runtime permissions",
+  "description": "Minimum shared AtrisShot runtime permissions",
   "windows": ["main", "overlay", "capture", "editor"],
   "permissions": [
     "core:default",
-    "core:window:allow-start-dragging",
-    "clipboard-manager:allow-write-text",
-    "dialog:allow-ask",
-    "dialog:allow-open",
-    "global-shortcut:allow-register",
-    "global-shortcut:allow-unregister",
-    "global-shortcut:allow-unregister-all",
     "store:allow-get",
     "store:allow-set",
     "store:allow-save",
-    "store:allow-load",
-    "updater:default"
+    "store:allow-load"
   ]
 }
