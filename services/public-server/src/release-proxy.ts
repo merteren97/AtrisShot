@@ -4,45 +4,89 @@ type Asset = { id: number; name: string };
 type Release = { tag_name?: string; body?: string; published_at?: string; assets?: Asset[] };
 type Options = { fetchImpl?: typeof fetch; publicBaseUrl?: string };
 
-function firstForwardedValue(value: string | undefined) {
-  return value?.split(",")[0]?.trim();
-}
+type ReleaseRepository = { owner: string; repo: string };
+
+const GITHUB_REPOSITORY_SEGMENT = /^[A-Za-z0-9_.-]{1,100}$/;
+const DEFAULT_PRODUCTION_PUBLIC_BASE_URL = "https://shot.atrishub.com";
 
 function isLoopbackBaseUrl(value: string) {
   try {
     const hostname = new URL(value).hostname.toLowerCase();
-    return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+    return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1" || hostname === "[::1]";
   } catch {
     return false;
   }
 }
 
-function requestBaseUrl(request: Request) {
-  const forwardedProto = firstForwardedValue(request.get("x-forwarded-proto"));
-  const forwardedHost = firstForwardedValue(request.get("x-forwarded-host"));
-  const host = forwardedHost || request.get("host");
+function normalizeBaseUrl(value: string | undefined, allowLoopback: boolean) {
+  const trimmed = value?.trim();
+  if (!trimmed) return "";
+  try {
+    const url = new URL(trimmed);
+    if (url.username || url.password || url.search || url.hash) return "";
+    if (url.pathname !== "/" && url.pathname !== "") return "";
+    const loopback = isLoopbackBaseUrl(url.toString());
+    if (loopback) {
+      if (!allowLoopback || !["http:", "https:"].includes(url.protocol)) return "";
+    } else if (url.protocol !== "https:") {
+      return "";
+    }
+    return url.origin;
+  } catch {
+    return "";
+  }
+}
+
+function configuredPublicBaseUrl(value: string | undefined) {
+  const trimmed = value?.trim();
+  if (process.env.NODE_ENV === "production") {
+    // Preserve deployments that still carry the historical localhost value,
+    // but never derive a public updater origin from client-controlled headers.
+    if (!trimmed || isLoopbackBaseUrl(trimmed)) return DEFAULT_PRODUCTION_PUBLIC_BASE_URL;
+    return normalizeBaseUrl(trimmed, false);
+  }
+  return normalizeBaseUrl(trimmed, true);
+}
+
+// Security boundary: x-forwarded-host and x-forwarded-proto are intentionally
+// not used to construct public updater URLs. Production uses only the configured
+// canonical origin or the fixed AtrisShot origin; local dev may derive loopback Host.
+function localRequestBaseUrl(request: Request) {
+  const host = request.get("host")?.trim();
   if (!host) return "";
-  return `${forwardedProto || request.protocol}://${host}`.replace(/\/$/, "");
+  const candidate = `${request.protocol}://${host}`;
+  return isLoopbackBaseUrl(candidate) ? normalizeBaseUrl(candidate, true) : "";
 }
 
 export function resolvePublicBaseUrl(request: Request, configuredBaseUrl?: string) {
-  const configured = configuredBaseUrl?.trim().replace(/\/$/, "");
-  const requestBase = requestBaseUrl(request);
-  if (!configured) return requestBase;
-  if (requestBase && isLoopbackBaseUrl(configured) && !isLoopbackBaseUrl(requestBase)) return requestBase;
-  return configured;
+  const configured = configuredPublicBaseUrl(configuredBaseUrl);
+  if (configured) return configured;
+  return process.env.NODE_ENV === "production" ? "" : localRequestBaseUrl(request);
+}
+
+function releaseRepository(): ReleaseRepository | null {
+  const owner = process.env.SHOT_RELEASE_REPO_OWNER?.trim() || "";
+  const repo = process.env.SHOT_RELEASE_REPO_NAME?.trim() || "AtrisShot";
+  if (!GITHUB_REPOSITORY_SEGMENT.test(owner) || !GITHUB_REPOSITORY_SEGMENT.test(repo)) return null;
+  return { owner, repo };
+}
+
+export function releaseProxyReady() {
+  return Boolean(releaseRepository() && configuredPublicBaseUrl(process.env.SHOT_PUBLIC_BASE_URL));
 }
 
 export function semverCompare(a: string, b: string) {
   const parse = (value: string) => {
-    const match = value.replace(/^v/, "").match(/^(\d+)\.(\d+)\.(\d+)(?:-([0-9]+))?/);
-    if (!match) return { core: [0, 0, 0], prerelease: null as number | null };
+    const match = value.replace(/^v/, "").match(/^(\d+)\.(\d+)\.(\d+)(?:-([0-9]+))?$/);
+    if (!match) return { core: [0, 0, 0], prerelease: null as number | null, valid: false };
     return {
       core: [Number(match[1]), Number(match[2]), Number(match[3])],
       prerelease: match[4] === undefined ? null : Number(match[4]),
+      valid: true,
     };
   };
   const first = parse(a); const second = parse(b);
+  if (!first.valid || !second.valid) return first.valid === second.valid ? 0 : first.valid ? 1 : -1;
   for (let index = 0; index < 3; index += 1) {
     if (first.core[index] !== second.core[index]) return first.core[index] > second.core[index] ? 1 : -1;
   }
@@ -66,8 +110,6 @@ export function assetPriority(platform: string, name: string) {
 export function createReleaseRouter(options: Options = {}) {
   const router = Router();
   const fetchImpl = options.fetchImpl || fetch;
-  const owner = () => process.env.SHOT_RELEASE_REPO_OWNER;
-  const repo = () => process.env.SHOT_RELEASE_REPO_NAME || "AtrisShot";
   const headers = (accept: string) => ({
     Accept: accept,
     "User-Agent": "AtrisShot-Release-Proxy",
@@ -75,25 +117,42 @@ export function createReleaseRouter(options: Options = {}) {
     ...(process.env.SHOT_RELEASE_REPO_ACCESS_TOKEN ? { Authorization: `Bearer ${process.env.SHOT_RELEASE_REPO_ACCESS_TOKEN}` } : {}),
   });
   const latest = async () => {
-    if (!owner()) return null;
-    const response = await fetchImpl(`https://api.github.com/repos/${owner()}/${repo()}/releases/latest`, { headers: headers("application/vnd.github+json") });
+    const repository = releaseRepository();
+    if (!repository) return null;
+    const response = await fetchImpl(`https://api.github.com/repos/${repository.owner}/${repository.repo}/releases/latest`, { headers: headers("application/vnd.github+json") });
     return response.ok ? await response.json() as Release : null;
   };
+
   router.get("/download/:id", async (request, response) => {
-    if (!/^\d+$/.test(request.params.id) || !owner()) return response.status(404).end();
-    const upstream = await fetchImpl(`https://api.github.com/repos/${owner()}/${repo()}/releases/assets/${request.params.id}`, { headers: headers("application/octet-stream"), redirect: "manual" });
-    const location = upstream.headers.get("location");
-    return location ? response.redirect(302, location) : response.status(502).end();
+    try {
+      const repository = releaseRepository();
+      if (!/^\d+$/.test(request.params.id) || !repository) return response.status(404).end();
+      const assetId = Number(request.params.id);
+      if (!Number.isSafeInteger(assetId)) return response.status(404).end();
+      const release = await latest();
+      if (!release?.assets?.some((asset) => asset.id === assetId)) return response.status(404).end();
+      const upstream = await fetchImpl(`https://api.github.com/repos/${repository.owner}/${repository.repo}/releases/assets/${assetId}`, { headers: headers("application/octet-stream"), redirect: "manual" });
+      const location = upstream.headers.get("location");
+      return location ? response.redirect(302, location) : response.status(502).end();
+    } catch {
+      return response.status(502).end();
+    }
   });
+
   router.get("/download-platform/:platform", async (request, response) => {
-    const release = await latest();
-    const asset = release?.assets
-      ?.map((candidate) => ({ candidate, priority: assetPriority(request.params.platform, candidate.name) }))
-      .filter((entry) => entry.priority > 0)
-      .sort((a, b) => b.priority - a.priority)[0]?.candidate;
-    if (!asset) return response.status(404).send("AtrisShot release is not available for this platform.");
-    return response.redirect(302, `/api/releases/download/${asset.id}`);
+    try {
+      const release = await latest();
+      const asset = release?.assets
+        ?.map((candidate) => ({ candidate, priority: assetPriority(request.params.platform, candidate.name) }))
+        .filter((entry) => entry.priority > 0)
+        .sort((a, b) => b.priority - a.priority)[0]?.candidate;
+      if (!asset) return response.status(404).send("AtrisShot release is not available for this platform.");
+      return response.redirect(302, `/api/releases/download/${asset.id}`);
+    } catch {
+      return response.status(502).send("AtrisShot release service is temporarily unavailable.");
+    }
   });
+
   router.get("/update/:platform/:version", async (request, response) => {
     try {
       const release = await latest();
@@ -101,12 +160,17 @@ export function createReleaseRouter(options: Options = {}) {
       const asset = (release.assets || []).map((candidate) => ({ candidate, priority: assetPriority(request.params.platform, candidate.name) })).filter((entry) => entry.priority > 0).sort((a, b) => b.priority - a.priority)[0]?.candidate;
       const signature = asset && release.assets?.find((candidate) => candidate.name === `${asset.name}.sig`);
       if (!asset || !signature) return response.status(204).end();
-      const signatureResponse = await fetchImpl(`https://api.github.com/repos/${owner()}/${repo()}/releases/assets/${signature.id}`, { headers: headers("application/octet-stream") });
+      const repository = releaseRepository();
+      if (!repository) return response.status(503).end();
+      const signatureResponse = await fetchImpl(`https://api.github.com/repos/${repository.owner}/${repository.repo}/releases/assets/${signature.id}`, { headers: headers("application/octet-stream") });
       const signatureText = signatureResponse.ok ? (await signatureResponse.text()).trim() : "";
-      if (!signatureText) return response.status(204).end();
-      const base = resolvePublicBaseUrl(request, options.publicBaseUrl || process.env.SHOT_PUBLIC_BASE_URL);
+      if (!signatureText || signatureText.length > 16_384) return response.status(204).end();
+      const base = resolvePublicBaseUrl(request, options.publicBaseUrl ?? process.env.SHOT_PUBLIC_BASE_URL);
+      if (!base) return response.status(503).json({ error: "AtrisShot public base URL is not configured securely." });
       return response.json({ version: release.tag_name.replace(/^v/, ""), pub_date: release.published_at, url: `${base}/api/releases/download/${asset.id}`, signature: signatureText, notes: release.body || "" });
-    } catch { return response.status(204).end(); }
+    } catch {
+      return response.status(204).end();
+    }
   });
   return router;
 }

@@ -2,7 +2,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import express from "express";
 import dotenv from "dotenv";
-import { createReleaseRouter } from "./release-proxy.js";
+import { createReleaseRouter, releaseProxyReady } from "./release-proxy.js";
 
 dotenv.config();
 dotenv.config({ path: path.resolve(process.cwd(), "../../.env") });
@@ -14,15 +14,16 @@ const port = Number(process.env.PORT || 3008);
 const host = process.env.HOST || "127.0.0.1";
 
 app.disable("x-powered-by");
-app.set("trust proxy", true);
+app.set("trust proxy", "loopback");
 app.get("/health", (_request, response) => {
   response.json({ status: "ok", service: "atris-shot-public" });
 });
 app.get("/ready", (_request, response) => {
-  response.status(process.env.SHOT_RELEASE_REPO_OWNER ? 200 : 503).json({
-    status: process.env.SHOT_RELEASE_REPO_OWNER ? "ready" : "configuration-required",
+  const ready = releaseProxyReady();
+  response.status(ready ? 200 : 503).json({
+    status: ready ? "ready" : "configuration-required",
     service: "atris-shot-public",
-    releaseProxyConfigured: Boolean(process.env.SHOT_RELEASE_REPO_OWNER),
+    releaseProxyConfigured: ready,
   });
 });
 app.use("/api/releases", createReleaseRouter());
@@ -31,7 +32,7 @@ app.use("/api", (_request, response) => {
 });
 app.use(express.static(publicRoot, {
   extensions: ["html"],
-  fallthrough: true
+  fallthrough: true,
 }));
 app.get("*", (_request, response) => {
   response.sendFile(path.join(publicRoot, "index.html"));
