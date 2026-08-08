@@ -63,7 +63,27 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": {
+        "default-src": "'self' customprotocol: asset:",
+        "connect-src": "ipc: http://ipc.localhost https://atrishub.com",
+        "font-src": "'self' data:",
+        "img-src": "'self' asset: http://asset.localhost blob: data:",
+        "style-src": "'self' 'unsafe-inline'",
+        "object-src": "'none'",
+        "base-uri": "'none'",
+        "frame-src": "'none'"
+      },
+      "devCsp": {
+        "default-src": "'self' http://localhost:3009 customprotocol: asset:",
+        "script-src": "'self' 'unsafe-eval' http://localhost:3009",
+        "connect-src": "ipc: http://ipc.localhost http://localhost:3009 ws://localhost:3009 http://127.0.0.1:3000 https://atrishub.com",
+        "font-src": "'self' data:",
+        "img-src": "'self' asset: http://asset.localhost http://localhost:3009 blob: data:",
+        "style-src": "'self' 'unsafe-inline'",
+        "object-src": "'none'",
+        "base-uri": "'none'",
+        "frame-src": "'none'"
+      }
     }
   },
   "bundle": {
