@@ -5,6 +5,8 @@ use std::{
 };
 use tauri::{AppHandle, State};
 
+// Session credentials for com.atrishub.shot are handled by session_store.rs.
+// Non-Windows storage uses keyring::Entry there; Windows retains DPAPI.
 const MAX_OFFLINE_GRACE_MS: u64 = 24 * 60 * 60 * 1000;
 
 #[derive(Clone, Default)]
