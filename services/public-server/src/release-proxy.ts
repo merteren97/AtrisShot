@@ -127,7 +127,11 @@ export function createReleaseRouter(options: Options = {}) {
     try {
       const repository = releaseRepository();
       if (!/^\d+$/.test(request.params.id) || !repository) return response.status(404).end();
-      const upstream = await fetchImpl(`https://api.github.com/repos/${repository.owner}/${repository.repo}/releases/assets/${request.params.id}`, { headers: headers("application/octet-stream"), redirect: "manual" });
+      const assetId = Number(request.params.id);
+      if (!Number.isSafeInteger(assetId)) return response.status(404).end();
+      const release = await latest();
+      if (!release?.assets?.some((asset) => asset.id === assetId)) return response.status(404).end();
+      const upstream = await fetchImpl(`https://api.github.com/repos/${repository.owner}/${repository.repo}/releases/assets/${assetId}`, { headers: headers("application/octet-stream"), redirect: "manual" });
       const location = upstream.headers.get("location");
       return location ? response.redirect(302, location) : response.status(502).end();
     } catch {
