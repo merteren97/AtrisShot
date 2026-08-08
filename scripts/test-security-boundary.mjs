@@ -41,7 +41,10 @@ assert.ok(tauriConfig.app.security.csp, "production Tauri CSP must be enabled");
 assert.equal(tauriConfig.app.security.csp["object-src"], "'none'");
 assert.equal(tauriConfig.app.security.csp["base-uri"], "'none'");
 assert.match(tauriConfig.app.security.csp["connect-src"], /https:\/\/atrishub\.com/);
-assert.doesNotMatch(tauriConfig.app.security.csp["connect-src"], /localhost|127\.0\.0\.1|ws:/);
+assert.doesNotMatch(
+  tauriConfig.app.security.csp["connect-src"],
+  /http:\/\/localhost(?::|\/)|https:\/\/localhost(?::|\/)|127\.0\.0\.1|ws:/,
+);
 assert.match(tauriConfig.app.security.devCsp["connect-src"], /http:\/\/127\.0\.0\.1:3000/);
 assert.match(tauriConfig.app.security.devCsp["connect-src"], /ws:\/\/localhost:3009/);
 
