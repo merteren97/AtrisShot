@@ -1,7 +1,10 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "overlay-drag",
-  "description": "Allow the result overlay to drag saved screenshots to other applications",
+  "description": "Allow only the result overlay to drag saved screenshots and move its window",
   "windows": ["overlay"],
-  "permissions": ["drag:allow-start-drag"]
+  "permissions": [
+    "core:window:allow-start-dragging",
+    "drag:allow-start-drag"
+  ]
 }
