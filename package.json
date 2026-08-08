@@ -23,7 +23,7 @@
     "test:runtime-boundary": "node scripts/test-runtime-boundary.mjs",
     "test:security-boundary": "node scripts/test-security-boundary.mjs",
     "test:release-windows": "node scripts/test-release-windows.mjs",
-    "test:settings": "node --experimental-strip-types scripts/test-settings-normalization.mjs",
+    "test:settings": "tsx scripts/test-settings-normalization.mjs",
     "test:release-proxy": "npm run test:release-proxy -w @atris-shot/public-server",
     "brand:generate": "node scripts/generate-brand-assets.mjs && npm run tauri -w @atris-shot/desktop -- icon src-tauri/icons/source-master.png && node scripts/sync-brand-icon-containers.mjs",
     "typecheck": "npm run typecheck --workspaces --if-present",
