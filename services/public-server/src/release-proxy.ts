@@ -56,6 +56,13 @@ function releaseRepository(): ReleaseRepository | null {
   return { owner, repo };
 }
 
+export function releaseProxyReady() {
+  return Boolean(
+    releaseRepository() &&
+    normalizeBaseUrl(process.env.SHOT_PUBLIC_BASE_URL, process.env.NODE_ENV !== "production"),
+  );
+}
+
 export function semverCompare(a: string, b: string) {
   const parse = (value: string) => {
     const match = value.replace(/^v/, "").match(/^(\d+)\.(\d+)\.(\d+)(?:-([0-9]+))?$/);
