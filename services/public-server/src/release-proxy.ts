@@ -36,6 +36,9 @@ function normalizeBaseUrl(value: string | undefined, allowLoopback: boolean) {
   }
 }
 
+// Security boundary: x-forwarded-host and x-forwarded-proto are intentionally
+// not used to construct public updater URLs. Production requires an explicit,
+// canonical SHOT_PUBLIC_BASE_URL; only loopback development can derive Host.
 function localRequestBaseUrl(request: Request) {
   const host = request.get("host")?.trim();
   if (!host) return "";
