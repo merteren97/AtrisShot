@@ -6,6 +6,8 @@
   "permissions": [
     "clipboard-manager:allow-write-text",
     "dialog:allow-ask",
-    "dialog:allow-open"
+    "dialog:allow-open",
+    "store:allow-set",
+    "store:allow-save"
   ]
 }
