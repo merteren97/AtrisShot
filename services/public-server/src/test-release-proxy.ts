@@ -10,7 +10,7 @@ async function withReleaseServer(fetchImpl: typeof fetch, run: (port: number) =>
   const app = express();
   app.set("trust proxy", true);
   app.use("/api/releases", createReleaseRouter({ fetchImpl, publicBaseUrl }));
-  const server = app.listen(0);
+  const server = app.listen(0, "127.0.0.1");
   await new Promise<void>((resolve) => server.once("listening", resolve));
   try {
     await run((server.address() as AddressInfo).port);
@@ -54,17 +54,20 @@ await withReleaseServer(fetchImpl, async (port) => {
   assert(semverCompare("0.1.0-4", "0.1.0-3") > 0, "numeric prerelease comparison failed");
   assert(semverCompare("0.1.0", "0.1.0-4") > 0, "stable must be newer than prerelease");
   assert(semverCompare("0.1.0-3", "0.1.0-4") < 0, "older prerelease comparison failed");
+  assert(semverCompare("not-a-version", "0.1.0") < 0, "invalid release version must not outrank a valid version");
   assert(assetPriority("windows-x86_64", "AtrisShot-setup.exe") > assetPriority("windows-x86_64", "AtrisShot.msi"), "Windows setup should be preferred");
   assert(assetPriority("linux-x86_64", "AtrisShot.AppImage.tar.gz") > assetPriority("linux-x86_64", "AtrisShot.AppImage"), "Linux updater archive should be preferred");
   assert(assetPriority("darwin-x86_64", "AtrisShot_0.2.0_x64.app.tar.gz") > assetPriority("darwin-x86_64", "AtrisShot_0.2.0_x64.dmg"), "macOS updater archive should be preferred");
   assert(assetPriority("darwin-aarch64", "AtrisShot_0.2.0_x64.app.tar.gz") === 0, "Apple Silicon must not receive Intel macOS assets");
   assert(assetPriority("darwin-x86_64", "AtrisShot_0.2.0_aarch64.app.tar.gz") === 0, "Intel macOS must not receive Apple Silicon assets");
 
-  const update = await fetch(`http://127.0.0.1:${port}/api/releases/update/windows-x86_64/0.1.0`);
+  const update = await fetch(`http://127.0.0.1:${port}/api/releases/update/windows-x86_64/0.1.0`, {
+    headers: { "x-forwarded-host": "attacker.example", "x-forwarded-proto": "https" },
+  });
   assert(update.status === 200, "signed update must be returned");
   const body = await update.json();
   assert(body.signature === "signed-value", "signature missing");
-  assert(body.url === "https://shot.atrishub.com/api/releases/download/1", "update URL must use the public proxy");
+  assert(body.url === "https://shot.atrishub.com/api/releases/download/1", "untrusted forwarded host must not influence update URL");
 
   const linuxUpdate = await fetch(`http://127.0.0.1:${port}/api/releases/update/linux-x86_64/0.1.0`);
   assert(linuxUpdate.status === 200, "signed Linux update must be returned");
@@ -87,24 +90,31 @@ await withReleaseServer(fetchImpl, async (port) => {
   assert(platformDownload.headers.get("location") === "/api/releases/download/1", "platform download must use the public proxy");
 });
 
+const previousNodeEnv = process.env.NODE_ENV;
 const previousPublicBaseUrl = process.env.SHOT_PUBLIC_BASE_URL;
+process.env.NODE_ENV = "production";
 process.env.SHOT_PUBLIC_BASE_URL = "http://localhost:3008";
 await withReleaseServer(fetchImpl, async (port) => {
   const update = await fetch(`http://127.0.0.1:${port}/api/releases/update/windows-x86_64/0.1.0`, {
     headers: {
-      "x-forwarded-host": "shot.atrishub.com",
+      "host": "attacker.example",
+      "x-forwarded-host": "attacker.example",
       "x-forwarded-proto": "https",
     },
   });
-  assert(update.status === 200, "forwarded production update must be returned");
-  const body = await update.json();
-  assert(body.url === "https://shot.atrishub.com/api/releases/download/1", "localhost env must not leak into production updater metadata");
+  assert(update.status === 503, "production updater metadata must fail closed without a trusted public base URL");
 }, "");
-if (previousPublicBaseUrl === undefined) {
-  delete process.env.SHOT_PUBLIC_BASE_URL;
-} else {
-  process.env.SHOT_PUBLIC_BASE_URL = previousPublicBaseUrl;
-}
+if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+else process.env.NODE_ENV = previousNodeEnv;
+if (previousPublicBaseUrl === undefined) delete process.env.SHOT_PUBLIC_BASE_URL;
+else process.env.SHOT_PUBLIC_BASE_URL = previousPublicBaseUrl;
+
+await withReleaseServer(async () => { throw new Error("upstream unavailable"); }, async (port) => {
+  const download = await fetch(`http://127.0.0.1:${port}/api/releases/download/1`);
+  assert(download.status === 502, "download proxy must handle upstream network failures");
+  const platformDownload = await fetch(`http://127.0.0.1:${port}/api/releases/download-platform/windows-x86_64`);
+  assert(platformDownload.status === 502, "platform resolver must handle upstream network failures");
+});
 
 const unsignedFetch: typeof fetch = async (input) => {
   const url = String(input);
