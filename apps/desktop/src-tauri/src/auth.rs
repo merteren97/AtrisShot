@@ -5,8 +5,6 @@ use std::{
 };
 use tauri::{AppHandle, State};
 
-const CREDENTIAL_SERVICE: &str = "com.atrishub.shot";
-const CREDENTIAL_USER: &str = "atris-session";
 const MAX_OFFLINE_GRACE_MS: u64 = 24 * 60 * 60 * 1000;
 
 #[derive(Clone, Default)]
@@ -102,25 +100,12 @@ pub fn store_session_token(app: AppHandle, token: String) -> Result<(), String> 
 
 #[tauri::command]
 pub fn read_session_token(app: AppHandle) -> Result<Option<String>, String> {
-    if let Some(token) = crate::session_store::load(&app)? { return Ok(Some(token)); }
-    let entry = keyring::Entry::new(CREDENTIAL_SERVICE, CREDENTIAL_USER)
-        .map_err(|error| error.to_string())?;
-    match entry.get_password() {
-        Ok(token) => { if crate::session_store::save(&app, &token).is_ok() { let _ = entry.delete_credential(); } Ok(Some(token)) },
-        Err(keyring::Error::NoEntry) => Ok(None),
-        Err(error) => Err(format!("Session token could not be read securely: {error}")),
-    }
+    crate::session_store::load(&app)
 }
 
 #[tauri::command]
 pub fn delete_session_token(app: AppHandle) -> Result<(), String> {
-    crate::session_store::clear(&app)?;
-    let entry = keyring::Entry::new(CREDENTIAL_SERVICE, CREDENTIAL_USER)
-        .map_err(|error| error.to_string())?;
-    match entry.delete_credential() {
-        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-        Err(error) => Err(format!("Session token could not be removed: {error}")),
-    }
+    crate::session_store::clear(&app)
 }
 
 #[cfg(test)]
