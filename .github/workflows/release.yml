@@ -24,7 +24,7 @@ env:
 
 jobs:
   build:
-    if: ${{ github.repository == 'merteren97/AtrisShot' && github.actor == 'merteren97' && github.ref == 'refs/heads/main' }}
+    if: ${{ github.repository == 'merteren97/AtrisShot' && github.actor == 'merteren97' && github.triggering_actor == 'merteren97' && github.ref == 'refs/heads/main' }}
     strategy:
       fail-fast: false
       matrix:
@@ -123,7 +123,7 @@ jobs:
             apps/desktop/src-tauri/target/**/release/bundle/**/*.sig
 
   publish:
-    if: ${{ github.repository == 'merteren97/AtrisShot' && github.actor == 'merteren97' && github.ref == 'refs/heads/main' }}
+    if: ${{ github.repository == 'merteren97/AtrisShot' && github.actor == 'merteren97' && github.triggering_actor == 'merteren97' && github.ref == 'refs/heads/main' }}
     needs: build
     runs-on: ubuntu-latest
     permissions:
