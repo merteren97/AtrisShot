@@ -27,28 +27,36 @@ await Promise.all([
   atrisHubPublic,
 ].map((dir) => mkdir(dir, { recursive: true })));
 
-const iconSvg = await readFile(path.join(finalBrand, "atris-shot-refined-icon.svg"), "utf8");
+// Application icons stay transparent; the tiled variant remains available in brand-options for previews.
+const iconSvg = await readFile(path.join(finalBrand, "atris-shot-refined-mark-dark.svg"), "utf8");
 const darkMarkSvg = await readFile(path.join(finalBrand, "atris-shot-refined-mark-dark.svg"), "utf8");
 const lightMarkSvg = await readFile(path.join(finalBrand, "atris-shot-refined-mark-light.svg"), "utf8");
+const toHubMark = (svg) => svg.replace(
+  'width="1024" height="1024" viewBox="0 0 1024 1024"',
+  'viewBox="110 120 804 804" preserveAspectRatio="xMidYMid meet"',
+);
+const hubDarkMarkSvg = toHubMark(darkMarkSvg);
+const hubLightMarkSvg = toHubMark(lightMarkSvg);
+const serializeSvg = (svg) => `${svg.trim().replace(/[ \t]+$/gm, "")}\n`;
 
 const brandRoots = [desktopBrand, landingBrand, publicServerBrand];
 
 for (const brandRoot of brandRoots) {
   await Promise.all([
-    writeFile(path.join(brandRoot, "atris-shot-icon.svg"), iconSvg),
-    writeFile(path.join(brandRoot, "atris-shot-mark-dark.svg"), darkMarkSvg),
-    writeFile(path.join(brandRoot, "atris-shot-mark-light.svg"), lightMarkSvg),
-    writeFile(path.join(brandRoot, "atris-shot-mark-system.svg"), darkMarkSvg),
-    writeFile(path.join(brandRoot, "atris-shot-mark.svg"), darkMarkSvg),
-    writeFile(path.join(brandRoot, "atris-shot-pulse.svg"), darkMarkSvg),
+    writeFile(path.join(brandRoot, "atris-shot-icon.svg"), serializeSvg(iconSvg)),
+    writeFile(path.join(brandRoot, "atris-shot-mark-dark.svg"), serializeSvg(darkMarkSvg)),
+    writeFile(path.join(brandRoot, "atris-shot-mark-light.svg"), serializeSvg(lightMarkSvg)),
+    writeFile(path.join(brandRoot, "atris-shot-mark-system.svg"), serializeSvg(darkMarkSvg)),
+    writeFile(path.join(brandRoot, "atris-shot-mark.svg"), serializeSvg(darkMarkSvg)),
+    writeFile(path.join(brandRoot, "atris-shot-pulse.svg"), serializeSvg(darkMarkSvg)),
   ]);
 }
 
 await Promise.all([
-  writeFile(path.join(atrisHubPublic, "atris-shot-logo.svg"), darkMarkSvg),
-  writeFile(path.join(atrisHubPublic, "atris-shot-logo-dark.svg"), darkMarkSvg),
-  writeFile(path.join(atrisHubPublic, "atris-shot-logo-light.svg"), lightMarkSvg),
-  writeFile(path.join(atrisHubPublic, "atris-shot-icon.svg"), iconSvg),
+  writeFile(path.join(atrisHubPublic, "atris-shot-logo.svg"), serializeSvg(hubDarkMarkSvg)),
+  writeFile(path.join(atrisHubPublic, "atris-shot-logo-dark.svg"), serializeSvg(hubDarkMarkSvg)),
+  writeFile(path.join(atrisHubPublic, "atris-shot-logo-light.svg"), serializeSvg(hubLightMarkSvg)),
+  writeFile(path.join(atrisHubPublic, "atris-shot-icon.svg"), serializeSvg(iconSvg)),
 ]);
 
 const iconBuffer = Buffer.from(iconSvg);
@@ -84,7 +92,7 @@ for (const [dir, filename, size] of pngTargets) {
     .toFile(path.join(dir, filename));
 }
 
-await writeFile(path.join(tauriIcons, "source.svg"), iconSvg);
+await writeFile(path.join(tauriIcons, "source.svg"), serializeSvg(iconSvg));
 await copyFile(path.join(desktopPublic, "icon-32.png"), path.join(landingPublic, "favicon.png"));
 await copyFile(path.join(desktopPublic, "icon-32.png"), path.join(publicServer, "favicon.png"));
 
