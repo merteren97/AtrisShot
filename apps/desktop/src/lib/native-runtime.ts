@@ -15,6 +15,9 @@ import type {
   WindowTarget,
 } from "@atris-shot/shot-core";
 
+export type EditorOpenMode = "preview" | "edit";
+export type EditorShotRequest = { id: string; mode: EditorOpenMode };
+
 export const isNativeRuntime = () =>
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
@@ -122,7 +125,8 @@ export const nativeRuntime = {
   showCaptureOverlay: () => invoke<void>("show_capture_overlay"),
   hideCaptureOverlay: () => invoke<void>("hide_capture_overlay"),
   openMainWindow: () => invoke<void>("open_main_window"),
-  openEditorWindow: (id: string) => invoke<void>("open_editor_window", { id }),
+  openEditorWindow: (id: string, mode: EditorOpenMode = "edit") =>
+    invoke<void>("open_editor_window", { id, mode }),
   hideEditorWindow: () => invoke<void>("hide_editor_window"),
   startDragging: () => getCurrentWindow().startDragging(),
   emitShotCaptured: (entry: ShotHistoryEntry) =>
@@ -132,8 +136,18 @@ export const nativeRuntime = {
   emitEditShotRequested: (entry: ShotHistoryEntry) => emit("edit-shot-requested", entry),
   onEditShotRequested: (callback: (entry: ShotHistoryEntry) => void) =>
     listen<ShotHistoryEntry>("edit-shot-requested", (event) => callback(event.payload)),
-  onEditorShotRequested: (callback: (id: string) => void) =>
-    listen<string>("editor-shot-requested", (event) => callback(event.payload)),
+  onEditorShotRequested: (callback: (request: EditorShotRequest) => void) =>
+    listen<EditorShotRequest | string>("editor-shot-requested", (event) => {
+      const payload = event.payload;
+      if (typeof payload === "string") {
+        callback({ id: payload, mode: "edit" });
+        return;
+      }
+      callback({
+        id: payload.id,
+        mode: payload.mode === "preview" ? "preview" : "edit",
+      });
+    }),
   emitDesktopSettingsChanged: () => emit("desktop-settings-changed"),
   onDesktopSettingsChanged: (callback: () => void) =>
     listen("desktop-settings-changed", callback),
@@ -158,13 +172,14 @@ export const nativeRuntime = {
     listen<{ locale: string; theme: string }>("ui-preferences-changed", (event) =>
       callback(event.payload),
     ),
-  storeSessionToken: (token: string) => invoke<void>("store_session_token", { token }),
-  readSessionToken: () => invoke<string | null>("read_session_token"),
-  deleteSessionToken: () => invoke<void>("delete_session_token"),
-  authorizeProductAccess: (validatedAtMs: number, offline: boolean) =>
+  // Keep the existing native command names while making the credential boundary explicit.
+  storeRefreshToken: (token: string) => invoke<void>("store_session_token", { token }),
+  readRefreshToken: () => invoke<string | null>("read_session_token"),
+  deleteRefreshToken: () => invoke<void>("delete_session_token"),
+  authorizeProductAccess: (validatedAtMs: number, offline: boolean, sessionExpiresAtMs: number) =>
     invoke<{ allowed: boolean; offline: boolean; allowedUntilMs: number }>(
       "authorize_product_access",
-      { validatedAtMs, offline },
+      { validatedAtMs, offline, sessionExpiresAtMs },
     ),
   revokeProductAccess: () => invoke<void>("revoke_product_access"),
   async copyText(text: string) {

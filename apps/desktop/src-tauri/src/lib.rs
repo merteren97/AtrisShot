@@ -145,6 +145,23 @@ struct CaptureUnavailable {
     code: String,
 }
 
+#[derive(Clone, Copy, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+enum EditorMode {
+    #[serde(rename = "preview")]
+    Preview,
+    #[serde(rename = "edit")]
+    #[default]
+    Edit,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct EditorShotRequestedPayload {
+    id: String,
+    mode: EditorMode,
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct AnnotationPoint {
@@ -1116,9 +1133,13 @@ fn render_annotations(
             "text" => {
                 let text = annotation.text.as_deref().unwrap_or("").trim();
                 if !text.is_empty() {
+                    let origin = AnnotationPoint {
+                        x: start.x.min(end.x),
+                        y: start.y.min(end.y),
+                    };
                     draw_text(
                         &mut image,
-                        start,
+                        &origin,
                         (end.x - start.x).abs().max(40.0),
                         (end.y - start.y).abs().max(32.0),
                         text,
@@ -1337,7 +1358,7 @@ fn capture_shot(
         .as_deref()
         .unwrap_or("corner-overlay")
     {
-        "open-editor" => open_editor_window(app.clone(), entry.id.clone()),
+        "open-editor" => open_editor_window(app.clone(), entry.id.clone(), None),
         "save-silently" => {}
         _ => show_overlay(app.clone(), request.overlay_corner.clone()),
     }
@@ -1747,6 +1768,20 @@ fn overlay_target_size(width: f64, height: f64, scale_factor: f64) -> PhysicalSi
     }
 }
 
+const OVERLAY_CARD_WIDTH: f64 = 250.0;
+const OVERLAY_CARD_HEIGHT: u32 = 175;
+const OVERLAY_CONTENT_PADDING: u32 = 16;
+const OVERLAY_CARD_GAP: u32 = 12;
+const OVERLAY_WINDOW_WIDTH: f64 = OVERLAY_CARD_WIDTH + OVERLAY_CONTENT_PADDING as f64;
+
+fn overlay_expanded_height(item_count: u32, max_height: u32) -> u32 {
+    let item_count = item_count.clamp(1, 5);
+    let desired_height = OVERLAY_CONTENT_PADDING
+        + (item_count * OVERLAY_CARD_HEIGHT)
+        + (item_count.saturating_sub(1) * OVERLAY_CARD_GAP);
+    desired_height.min(max_height)
+}
+
 fn position_overlay_window(app: &AppHandle, corner: &str, target_size: Option<PhysicalSize<u32>>) {
     let Some(window) = app.get_webview_window("overlay") else {
         return;
@@ -1846,11 +1881,12 @@ fn set_overlay_presentation(
     let (width, height) = if state == "collapsed" {
         (32.0, 64.0)
     } else {
-        let item_count = item_count.clamp(1, 5);
-        let desired_height = 16 + (item_count * 160) + (item_count.saturating_sub(1) * 12);
         (
-            304.0,
-            f64::from(desired_height.min(overlay_max_height(&app))),
+            OVERLAY_WINDOW_WIDTH,
+            f64::from(overlay_expanded_height(
+                item_count,
+                overlay_max_height(&app),
+            )),
         )
     };
     let target_size = overlay_target_size(width, height, window.scale_factor().unwrap_or(1.0));
@@ -2062,13 +2098,19 @@ fn center_window(window: &tauri::WebviewWindow, app: &AppHandle) {
 }
 
 #[tauri::command]
-fn open_editor_window(app: AppHandle, id: String) {
+fn open_editor_window(app: AppHandle, id: String, mode: Option<EditorMode>) {
     if let Some(window) = app.get_webview_window("editor") {
         center_window(&window, &app);
         let _ = window.show();
         center_window(&window, &app);
         let _ = window.set_focus();
-        let _ = app.emit("editor-shot-requested", id);
+        let _ = app.emit(
+            "editor-shot-requested",
+            EditorShotRequestedPayload {
+                id,
+                mode: mode.unwrap_or_default(),
+            },
+        );
     }
 }
 
@@ -2605,6 +2647,27 @@ mod tests {
                 height: 80,
             }
         );
+    }
+
+    #[test]
+    fn expanded_overlay_height_matches_card_stack_and_max_height() {
+        assert_eq!(OVERLAY_CARD_WIDTH, 250.0);
+        assert_eq!(overlay_expanded_height(0, 1_000), 191);
+        assert_eq!(overlay_expanded_height(1, 1_000), 191);
+        assert_eq!(overlay_expanded_height(2, 1_000), 378);
+        assert_eq!(overlay_expanded_height(5, 1_000), 939);
+        assert_eq!(overlay_expanded_height(5, 500), 500);
+    }
+
+    #[test]
+    fn editor_event_payload_serializes_default_edit_mode() {
+        let payload = EditorShotRequestedPayload {
+            id: "shot-id".to_string(),
+            mode: EditorMode::default(),
+        };
+        let encoded = serde_json::to_value(payload).expect("serialize editor event payload");
+        assert_eq!(encoded["id"], "shot-id");
+        assert_eq!(encoded["mode"], "edit");
     }
 
     #[test]
