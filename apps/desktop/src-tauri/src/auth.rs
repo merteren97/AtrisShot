@@ -67,8 +67,14 @@ pub fn authorize_product_access(
     gate: State<'_, AccessGate>,
     validated_at_ms: u64,
     offline: bool,
+    session_expires_at_ms: u64,
 ) -> Result<AccessStatus, String> {
-    let allowed_until_ms = validate_grant(validated_at_ms, offline)?;
+    let mut allowed_until_ms = validate_grant(validated_at_ms, offline)?;
+    let now = now_ms();
+    if session_expires_at_ms <= now {
+        return Err("Atris desktop session has expired.".to_string());
+    }
+    allowed_until_ms = allowed_until_ms.min(session_expires_at_ms);
     let mut state = gate
         .state
         .lock()

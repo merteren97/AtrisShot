@@ -20,6 +20,10 @@ const authClient = await readFile(
   new URL("../apps/desktop/src/lib/auth-client.ts", import.meta.url),
   "utf8",
 );
+const authHook = await readFile(
+  new URL("../apps/desktop/src/hooks/use-auth-session.ts", import.meta.url),
+  "utf8",
+);
 const nativeAuth = await readFile(
   new URL("../apps/desktop/src-tauri/src/auth.rs", import.meta.url),
   "utf8",
@@ -86,12 +90,23 @@ assert.match(rust, /Sonucu Göster/);
 assert.match(rust, /Çıkış/);
 assert.doesNotMatch(rust, /AÃ|GÃ|Ã‡|Ä±|Å/);
 assert.doesNotMatch(rust, /microphone|transcribe_audio|model_path|engine_path|127\.0\.0\.1:0/i);
-assert.match(authClient, /\/api\/auth\/me/);
+assert.match(authClient, /\/api\/desktop\/v1\/auth\/login/);
+assert.match(authClient, /\/api\/desktop\/v1\/auth\/refresh/);
+assert.match(authClient, /\/api\/desktop\/v1\/auth\/logout/);
+assert.match(authClient, /accessTokenExpiresAt/);
 assert.match(authClient, /authorizeProductAccess/);
 assert.match(authClient, /24 \* 60 \* 60 \* 1000/);
 assert.match(authClient, /hasProductAccess/);
 assert.match(authClient, /rememberSession/);
-assert.match(authClient, /else await nativeRuntime\.deleteSessionToken\(\)/);
+assert.match(authClient, /else await nativeRuntime\.deleteRefreshToken\(\)/);
+assert.match(authClient, /memoryAccessToken/);
+assert.match(authClient, /memoryRefreshToken/);
+assert.match(authClient, /export async function refreshSession/);
+assert.match(authHook, /refreshSession/);
+assert.match(authHook, /ACCESS_REFRESH_LEAD_MS/);
+assert.match(authHook, /REFRESH_RETRY_DELAY_MS/);
+assert.match(nativeAuth, /session_expires_at_ms/);
+assert.match(nativeAuth, /allowed_until_ms\.min\(session_expires_at_ms\)/);
 assert.doesNotMatch(authClient, /localStorage\.setItem\([^)]*token/i);
 assert.doesNotMatch(authClient, /Premium or Admin/);
 assert.match(nativeAuth, /keyring::Entry/);
@@ -199,6 +214,8 @@ assert.match(nativeRuntime, /hideEditorWindow/);
 assert.match(nativeRuntime, /hide_editor_window/);
 assert.match(nativeRuntime, /onEditorShotRequested/);
 assert.match(nativeRuntime, /editor-shot-requested/);
+assert.match(nativeRuntime, /mode: EditorOpenMode/);
+assert.match(nativeRuntime, /storeRefreshToken/);
 assert.match(nativeRuntime, /onCaptureOverlayOpened/);
 assert.match(nativeRuntime, /capture-overlay-opened/);
 assert.match(nativeRuntime, /CaptureOverlayOpenedPayload/);
@@ -271,12 +288,15 @@ assert.match(resultOverlay, /sessionStorage/);
 assert.match(resultOverlay, /dismissedEntryIdsRef/);
 assert.match(resultOverlay, /persistDismissedOverlayIds/);
 assert.match(resultOverlay, /upsertOverlayEntry/);
-assert.match(resultOverlay, /h-40 w-72/);
+assert.match(resultOverlay, /h-\[175px\] w-\[250px\]/);
 assert.match(resultOverlay, /flex-col gap-3/);
 assert.match(resultOverlay, /border border-white\/15 bg-black\/90/);
-assert.match(resultOverlay, /object-contain/);
+assert.match(resultOverlay, /object-fill/);
 assert.match(resultOverlay, /setOverlayPresentation\(entries\.length/);
 assert.match(resultOverlay, /startShotDrag\(displayPath, previewUrl\)/);
+assert.match(resultOverlay, /SHOT_DRAG_THRESHOLD_PX/);
+assert.match(resultOverlay, /onPointerMove/);
+assert.match(resultOverlay, /openEditorWindow\(entryId, "preview"\)/);
 assert.match(resultOverlay, /result === "Dropped"/);
 assert.match(resultOverlay, /event\.dataTransfer\.dropEffect !== "none"/);
 assert.match(resultOverlay, /group-hover:opacity-100 group-focus-within:opacity-100/);
@@ -425,12 +445,14 @@ assert.match(editorWindow, /data-editor-id/);
 assert.match(editorWindow, /event\.detail > 1/);
 assert.match(editorWindow, /onLostPointerCapture/);
 assert.match(editorWindow, /displayScale/);
+assert.match(editorWindow, /mode === "preview"/);
+assert.match(editorWindow, /onModeChange/);
 assert.match(rust, /stroke_width\.clamp\(4, 48\)/);
 assert.match(rust, /shape_stroke_width_changes_rendered_pixels/);
 assert.match(rust, /blur_pixel_size_changes_rendered_pixels/);
 assert.match(rust, /annotation_text_preserves_case_and_unicode_glyphs/);
 assert.match(editorWindow, /AtrisShotAnnotation/);
-assert.match(editorWindow, /Math\.min\(64, annotation\.fontSize/);
+assert.match(editorWindow, /MAX_TEXT_FONT_SIZE|clampTextFontSize/);
 assert.match(editorWindow, /markerUnits="userSpaceOnUse"/);
 assert.match(rust, /remove_history_entry_files/);
 assert.match(rust, /history_entry_file_cleanup_removes_original_edited_and_thumbnail/);

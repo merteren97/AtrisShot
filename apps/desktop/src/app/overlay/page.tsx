@@ -1,6 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type DragEvent, type MouseEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type DragEvent,
+  type MouseEvent,
+  type PointerEvent,
+} from "react";
 import { Copy, Edit3, Image, PanelLeftClose, PanelLeftOpen, PanelRightOpen, X } from "lucide-react";
 import type { ShotHistoryEntry, ShotSettings } from "@atris-shot/shot-core";
 import { DEFAULT_SHOT_SETTINGS } from "@atris-shot/shot-core";
@@ -13,6 +21,7 @@ import { useUiPreferences } from "@/lib/ui-preferences";
 const MAX_OVERLAY_ENTRIES = 5;
 const AUTO_HIDE_DELAY_MS = 4_000;
 const POINTER_LEAVE_DELAY_MS = 500;
+const SHOT_DRAG_THRESHOLD_PX = 7;
 const DISMISSED_OVERLAY_STORAGE_KEY = "atris-shot.dismissed-overlay-entries";
 
 type PresentationState = "expanded" | "collapsed" | "hidden";
@@ -70,7 +79,11 @@ function upsertOverlayEntry(
   return [nextEntry, ...entries.filter((entry) => entry.id !== nextEntry.id)].slice(0, MAX_OVERLAY_ENTRIES);
 }
 
-export default function OverlayPage() {
+export type OverlayPageProps = {
+  onPreview?: (entryId: string) => void;
+};
+
+export default function OverlayPage({ onPreview }: OverlayPageProps = {}) {
   const { locale } = useUiPreferences();
   const text = overlayCopy[locale];
   const [entries, setEntries] = useState<ShotHistoryEntry[]>([]);
@@ -201,6 +214,18 @@ export default function OverlayPage() {
     setPresentation(collapsedState());
   };
 
+  const previewEntry = useCallback((entryId: string) => {
+    clearTimer();
+    setManualPinned(true);
+    if (onPreview) {
+      onPreview(entryId);
+      return;
+    }
+    void nativeRuntime.openEditorWindow(entryId, "preview").catch(() => {
+      setManualPinned(false);
+    });
+  }, [clearTimer, onPreview]);
+
   if (presentation === "hidden") return null;
 
   if (presentation === "collapsed") {
@@ -261,6 +286,7 @@ export default function OverlayPage() {
             text={text}
             onCollapse={collapse}
             onDismiss={() => dismissEntry(entry.id)}
+            onPreview={previewEntry}
           />
         ))}
       </div>
@@ -268,14 +294,22 @@ export default function OverlayPage() {
   );
 }
 
-function OverlayCard({ entry, text, onCollapse, onDismiss }: {
+function OverlayCard({ entry, text, onCollapse, onDismiss, onPreview }: {
   entry: ShotHistoryEntry;
   text: (typeof overlayCopy)["en"] | (typeof overlayCopy)["tr"];
   onCollapse: () => void;
   onDismiss: () => void;
+  onPreview: (entryId: string) => void;
 }) {
   const [previewUrl, setPreviewUrl] = useState("");
   const [nativeDragFailed, setNativeDragFailed] = useState(false);
+  const pointerRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    dragging: boolean;
+  } | null>(null);
+  const suppressClickRef = useRef(false);
   const shotPath = entry.editedPath || entry.originalPath;
   const displayPath = formatPathForDisplay(shotPath);
 
@@ -295,9 +329,8 @@ function OverlayCard({ entry, text, onCollapse, onDismiss }: {
     await nativeRuntime.hideOverlay();
   };
 
-  const startNativeDrag = (event: MouseEvent<HTMLElement>) => {
-    if (!isNativeRuntime() || nativeDragFailed || event.button !== 0 || !previewUrl) return;
-    if ((event.target as HTMLElement).closest("button")) return;
+  const startNativeDrag = () => {
+    if (!isNativeRuntime() || nativeDragFailed || !previewUrl) return;
     void nativeRuntime.startShotDrag(displayPath, previewUrl)
       .then((result) => {
         if (result === "Dropped") onDismiss();
@@ -305,11 +338,75 @@ function OverlayCard({ entry, text, onCollapse, onDismiss }: {
       .catch(() => setNativeDragFailed(true));
   };
 
+  const onPointerDown = (event: PointerEvent<HTMLElement>) => {
+    suppressClickRef.current = false;
+    if (event.button !== 0 || isButtonTarget(event.target)) return;
+    pointerRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      dragging: false,
+    };
+    if (isNativeRuntime() && !nativeDragFailed) {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    }
+  };
+
+  const onPointerMove = (event: PointerEvent<HTMLElement>) => {
+    const pointer = pointerRef.current;
+    if (!pointer || pointer.pointerId !== event.pointerId || pointer.dragging) return;
+    const movedX = event.clientX - pointer.startX;
+    const movedY = event.clientY - pointer.startY;
+    if (Math.hypot(movedX, movedY) < SHOT_DRAG_THRESHOLD_PX) return;
+    if (isNativeRuntime() && !nativeDragFailed && !previewUrl) return;
+    pointer.dragging = true;
+    suppressClickRef.current = true;
+    startNativeDrag();
+  };
+
+  const onPointerUp = (event: PointerEvent<HTMLElement>) => {
+    const pointer = pointerRef.current;
+    if (!pointer || pointer.pointerId !== event.pointerId) return;
+    pointerRef.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  };
+
+  const onPointerCancel = (event: PointerEvent<HTMLElement>) => {
+    onPointerUp(event);
+  };
+
+  const onCardClick = (event: MouseEvent<HTMLElement>) => {
+    if (isButtonTarget(event.target)) {
+      suppressClickRef.current = false;
+      return;
+    }
+    if (suppressClickRef.current) {
+      suppressClickRef.current = false;
+      return;
+    }
+    onPreview(entry.id);
+  };
+
   const startFallbackDrag = (event: DragEvent<HTMLElement>) => {
+    if (isButtonTarget(event.target)) {
+      event.preventDefault();
+      return;
+    }
+    const pointer = pointerRef.current;
+    if (
+      pointer &&
+      Math.hypot(event.clientX - pointer.startX, event.clientY - pointer.startY) < SHOT_DRAG_THRESHOLD_PX
+    ) {
+      event.preventDefault();
+      return;
+    }
     if (isNativeRuntime() && !nativeDragFailed) {
       event.preventDefault();
       return;
     }
+    suppressClickRef.current = true;
     event.dataTransfer.effectAllowed = "copy";
     event.dataTransfer.setData("text/plain", displayPath);
   };
@@ -318,16 +415,28 @@ function OverlayCard({ entry, text, onCollapse, onDismiss }: {
     <article
       data-shot-drag
       draggable={!isNativeRuntime() || nativeDragFailed}
-      onMouseDown={startNativeDrag}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerCancel}
+      onClick={onCardClick}
+      onKeyDown={(event) => {
+        if (isButtonTarget(event.target) || (event.key !== "Enter" && event.key !== " ")) return;
+        event.preventDefault();
+        onPreview(entry.id);
+      }}
       onDragStart={startFallbackDrag}
       onDragEnd={(event) => {
         if (event.dataTransfer.dropEffect !== "none") onDismiss();
       }}
-      className="group relative isolate h-40 w-72 shrink-0 cursor-copy overflow-hidden rounded-lg border border-white/15 bg-black/90 shadow-xl shadow-black/30 focus-within:ring-2 focus-within:ring-ring"
+      role="button"
+      tabIndex={0}
+      aria-label={text.preview}
+      className="group relative isolate h-[175px] w-[250px] shrink-0 cursor-copy overflow-hidden rounded-lg border border-white/15 bg-black/90 shadow-xl shadow-black/30 focus-within:ring-2 focus-within:ring-ring"
       title={displayPath}
     >
       {previewUrl ? (
-        <img src={previewUrl} alt={text.preview} className="h-full w-full select-none object-contain" decoding="async" draggable={false} />
+        <img src={previewUrl} alt={text.preview} className="block h-full w-full select-none object-fill" decoding="async" draggable={false} />
       ) : (
         <div className="grid h-full place-items-center rounded-lg bg-muted/75"><Image className="h-7 w-7 text-muted-foreground" /></div>
       )}
@@ -345,4 +454,8 @@ function formatPathForDisplay(path: string) {
   if (path.startsWith("\\\\?\\UNC\\")) return `\\\\${path.slice("\\\\?\\UNC\\".length)}`;
   if (path.startsWith("\\\\?\\")) return path.slice("\\\\?\\".length);
   return path;
+}
+
+function isButtonTarget(target: EventTarget | null) {
+  return target instanceof Element && target.closest("button") !== null;
 }
