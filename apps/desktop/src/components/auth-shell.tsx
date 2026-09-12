@@ -37,8 +37,10 @@ export function AuthShell() {
   }
 
   if (auth.state === "authorized") {
-    return <ShotWorkspace session={auth.session} onLogout={() => void auth.logout()} />;
+    return <div className="flex h-full min-h-0 flex-col">{auth.session.appAccess?.announcement && <p role="status" className="border-b px-4 py-2 text-sm">{auth.session.appAccess.announcement}</p>}<div className="min-h-0 flex-1"><ShotWorkspace session={auth.session} onLogout={() => void auth.logout()} /></div></div>;
   }
+
+  if (auth.session.user && auth.session.appAccess?.allowed === false) return <main className="flex min-h-screen flex-col items-center justify-center gap-4 bg-background p-6 text-center"><h1 className="text-xl font-semibold">Premium üyelik gerekiyor</h1><p>{auth.session.appAccess.announcement || "AtrisShot erişimi için aktif Premium üyelik gerekiyor."}</p><Button onClick={() => void auth.logout()}>Hesaptan çık</Button></main>;
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
