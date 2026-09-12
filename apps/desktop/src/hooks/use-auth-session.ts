@@ -3,12 +3,15 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   clearSession,
-  hasProductAccess,
+  hasShotAccess,
+  fetchShotAccess,
+  rememberShotPolicy,
   login,
   refreshSession,
   restoreSession,
   type ShotSession,
 } from "@/lib/auth-client";
+import { isNativeRuntime, nativeRuntime } from "@/lib/native-runtime";
 
 const emptySession: ShotSession = {
   user: null,
@@ -31,6 +34,30 @@ export function useAuthSession() {
       })
       .finally(() => setChecking(false));
   }, []);
+
+  useEffect(() => {
+    if (!session.accessToken || session.offline) return;
+    const token = session.accessToken;
+    let disposed = false;
+    let busy = false;
+    const tick = async () => {
+      if (busy) return;
+      busy = true;
+      try {
+        const appAccess = await fetchShotAccess(token);
+        if (disposed) return;
+        setSession(current => {
+          if (current.accessToken !== token) return current;
+          const next = { ...current, appAccess }; rememberShotPolicy(next); return next;
+        });
+        if (!appAccess.allowed && isNativeRuntime()) await nativeRuntime.revokeProductAccess();
+        if (appAccess.allowed && !disposed) await fetchShotAccess(token, true);
+      } catch { /* The existing refresh loop reconciles expired credentials. */ }
+      finally { busy = false; }
+    };
+    void tick(); const timer = setInterval(tick, 60000);
+    return () => { disposed = true; clearInterval(timer); };
+  }, [session.accessToken, session.offline]);
 
   useEffect(() => {
     if (!session.user || !session.sessionExpiresAtMs) return;
@@ -59,7 +86,7 @@ export function useAuthSession() {
 
   const state = useMemo(() => {
     if (!session.user) return "signed-out";
-    return hasProductAccess(session.membership, session.user) ? "authorized" : "signed-out";
+    return hasShotAccess(session) ? "authorized" : "signed-out";
   }, [session]);
 
   return {

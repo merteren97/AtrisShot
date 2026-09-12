@@ -62,6 +62,7 @@ class AuthStateChangedError extends Error {
 }
 
 export interface ShotSession {
+  appAccess?: { appId: string; allowed: boolean; mode: string; announcement: string };
   /** The access token is intentionally exposed only in this in-memory session object. */
   accessToken?: string;
   accessTokenExpiresAtMs?: number;
@@ -134,6 +135,7 @@ const readMetadata = (): ShotSession => {
       membership: normalizeMembership(isMembership(parsed.membership) ? parsed.membership : undefined),
       offline: parsed.offline === true,
     };
+    if (isRecord(parsed.appAccess) && parsed.appAccess.appId === "shot" && typeof parsed.appAccess.allowed === "boolean" && typeof parsed.appAccess.mode === "string" && typeof parsed.appAccess.announcement === "string") session.appAccess = parsed.appAccess as NonNullable<ShotSession["appAccess"]>;
     if (typeof parsed.validatedAtMs === "number" && Number.isFinite(parsed.validatedAtMs)) {
       session.validatedAtMs = parsed.validatedAtMs;
     }
@@ -160,6 +162,7 @@ const persistMetadata = (session: ShotSession) => {
       JSON.stringify({
         user: session.user,
         membership: session.membership,
+        appAccess: session.appAccess,
         validatedAtMs: session.validatedAtMs,
         sessionExpiresAtMs: session.sessionExpiresAtMs,
         desktopSessionId: session.desktopSessionId,
@@ -334,6 +337,14 @@ let refreshInFlight: Promise<ShotSession> | null = null;
 let restoreInFlight: Promise<ShotSession> | null = null;
 let authGeneration = 0;
 
+export async function fetchShotAccess(token: string, activity = false) {
+  const result = await request<{ access: NonNullable<ShotSession["appAccess"]> }>(`/api/apps/shot/${activity ? "activity" : "access"}`, { method: activity ? "POST" : "GET", headers: { Authorization: `Bearer ${token}` }, cache: "no-store" });
+  if (!result.access || result.access.appId !== "shot" || typeof result.access.allowed !== "boolean" || !["FREE", "PREVIEW", "PREMIUM"].includes(result.access.mode)) throw new InvalidResponseError("Invalid application access response.");
+  return result.access;
+}
+export function rememberShotPolicy(session: ShotSession) { persistMetadata(session); }
+export const hasShotAccess = (session: ShotSession) => session.appAccess?.allowed !== false && (session.offline ? hasProductAccess(session.membership, session.user) : session.appAccess?.allowed === true);
+
 const clearMemoryAccessToken = () => {
   memoryAccessToken = null;
   memoryAccessTokenExpiresAtMs = 0;
@@ -395,7 +406,10 @@ async function applyAuthResponse(
   }
   if (expectedGeneration !== authGeneration) throw new AuthStateChangedError();
 
+  const appAccess = await fetchShotAccess(response.accessToken);
+  if (expectedGeneration !== authGeneration) throw new AuthStateChangedError();
   const session: ShotSession = {
+    appAccess,
     accessToken: response.accessToken,
     accessTokenExpiresAtMs,
     user: response.user,
@@ -407,7 +421,7 @@ async function applyAuthResponse(
     offline: false,
   };
   if (isNativeRuntime()) {
-    if (hasProductAccess(session.membership, session.user)) {
+    if (appAccess.allowed) {
       await nativeRuntime.authorizeProductAccess(now, false, sessionExpiresAtMs);
     } else {
       await nativeRuntime.revokeProductAccess();
@@ -442,7 +456,7 @@ const restoreOffline = async (cached: ShotSession, expectedGeneration: number): 
       ? 0
       : Math.min(validatedAtMs + MAX_OFFLINE_GRACE_MS, sessionExpiresAtMs);
   const withinGrace =
-    hasProductAccess(cached.membership, cached.user) &&
+    cached.appAccess?.allowed !== false && hasProductAccess(cached.membership, cached.user) &&
     validatedAtMs !== undefined &&
     sessionExpiresAtMs !== undefined &&
     validatedAtMs <= now + MAX_CLOCK_SKEW_MS &&
@@ -523,21 +537,29 @@ export async function login(
   rememberSession = true,
 ): Promise<ShotSession> {
   const expectedGeneration = ++authGeneration;
-  const body: DesktopLoginRequest = {
-    email,
-    password,
-    deviceId: getDeviceId(),
-    deviceName: "AtrisShot Desktop",
-    platform: getDevicePlatform(),
-  };
-  const data = validateDesktopAuthResponse(
-    await request<unknown>(LOGIN_PATH, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    }),
-  );
-  return applyAuthResponse(data, rememberSession && isNativeRuntime(), expectedGeneration);
+  try {
+    const body: DesktopLoginRequest = {
+      email,
+      password,
+      deviceId: getDeviceId(),
+      deviceName: "AtrisShot Desktop",
+      platform: getDevicePlatform(),
+    };
+    const data = validateDesktopAuthResponse(
+      await request<unknown>(LOGIN_PATH, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+    );
+    return await applyAuthResponse(data, rememberSession && isNativeRuntime(), expectedGeneration);
+  } catch (error) {
+    // A desktop credential is provisional until the current Hub application
+    // policy has been checked. Remove any token staged by applyAuthResponse
+    // when the policy/response validation fails during a fresh login.
+    if (expectedGeneration === authGeneration) await clearLocalSession(expectedGeneration);
+    throw error;
+  }
 }
 
 export function restoreSession(): Promise<ShotSession> {
