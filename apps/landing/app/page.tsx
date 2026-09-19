@@ -174,9 +174,17 @@ export default function LandingPage() {
             >
               {copy.nav.download}
             </a>
+            <a
+              href="https://atrishub.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-semibold text-muted-foreground transition hover:bg-muted hover:text-foreground"
+            >
+              <span>{copy.nav.hubLink}</span>
+            </a>
           </nav>
 
-          {/* Sağ Eylemler: Dil, Tema, AtrisHub Linki & İndir Butonu */}
+          {/* Sağ Eylemler: Dil, Tema & İndir Butonu */}
           <div className="flex items-center gap-2">
             {/* Dil Seçici */}
             <div ref={languageRef} className="relative">
@@ -227,16 +235,6 @@ export default function LandingPage() {
                 <Moon className="h-4 w-4 text-slate-700" />
               )}
             </button>
-
-            {/* AtrisHub Ekosistem Linki */}
-            <a
-              href="https://atrishub.com"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="hidden sm:inline-flex items-center gap-1 rounded-lg border border-border bg-card px-2.5 py-1.5 text-xs font-semibold text-muted-foreground transition hover:text-foreground hover:bg-muted"
-            >
-              <span>{copy.nav.hubLink}</span>
-            </a>
 
             {/* Birincil İndir Butonu */}
             <a
