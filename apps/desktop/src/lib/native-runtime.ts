@@ -65,6 +65,8 @@ export const nativeRuntime = {
   deleteShot: (id: string) => invoke<ShotHistoryEntry[]>("delete_shot", { id }),
   deleteShots: (ids: string[]) => invoke<ShotHistoryEntry[]>("delete_shots", { ids }),
   clearShotHistory: () => invoke<ShotHistoryEntry[]>("clear_shot_history"),
+  pruneShotHistory: (limit: number) =>
+    isNativeRuntime() ? invoke<ShotHistoryEntry[]>("prune_shot_history", { limit }) : Promise.resolve([]),
   revealShot: (path: string) => invoke<void>("reveal_shot", { path }),
   pathExists: (path: string) =>
     isNativeRuntime() ? invoke<boolean>("path_exists", { path }) : Promise.resolve(true),
@@ -157,6 +159,10 @@ export const nativeRuntime = {
     listen("result-overlay-opened", callback),
   onResultOverlayToggleRequested: (callback: () => void) =>
     listen("result-overlay-toggle-requested", callback),
+  onShotDeleted: (callback: (payload: { id: string }) => void) =>
+    listen<{ id: string }>("shot-deleted", (event) => callback(event.payload)),
+  onShotHistoryCleared: (callback: () => void) =>
+    listen("shot-history-cleared", callback),
   onCaptureUnavailable: (callback: (payload: { code: "no-display" | "overlay-unavailable" | "capture-failed" }) => void) =>
     listen<{ code: "no-display" | "overlay-unavailable" | "capture-failed" }>(
       "capture-unavailable",

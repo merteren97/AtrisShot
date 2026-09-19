@@ -2,8 +2,9 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "AtrisShot",
-  description: "Local-first screenshot capture, editing, history, and path workflows for your desktop.",
+  title: "AtrisShot — Profesyonel Ekran Yakalama ve İşaretleme Stüdyosu",
+  description:
+    "AtrisShot; manyetik pencere algılama, akıllı sansürleme (blur), vektörel işaretleme ve yerel gizlilik odaklı profesyonel Tauri masaüstü ekran yakalama aracıdır.",
   applicationName: "AtrisShot",
   manifest: "/manifest.webmanifest",
   icons: {
@@ -18,7 +19,10 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#121916",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#fbf9f5" },
+    { media: "(prefers-color-scheme: dark)", color: "#181a1c" },
+  ],
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
