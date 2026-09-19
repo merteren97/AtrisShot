@@ -108,59 +108,61 @@ export function InteractiveShotSandbox({ locale }: InteractiveShotSandboxProps) 
 
   return (
     <div className="w-full flex flex-col gap-3 select-none">
-      {/* 1. ÜST MOD SEÇİCİ PİLL'LER (AtrisHub Stili) */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 p-1.5 rounded-2xl border border-border/80 bg-card/90 shadow-sm backdrop-blur-md">
-        <button
-          type="button"
-          onClick={() => setActiveTab("snap")}
-          className={`inline-flex items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-xs font-bold transition-all cursor-pointer ${
-            activeTab === "snap"
-              ? "bg-primary text-primary-foreground shadow-sm"
-              : "text-muted-foreground hover:text-foreground hover:bg-muted"
-          }`}
-        >
-          <Crop className="h-3.5 w-3.5" />
-          <span>{t.tabSnap}</span>
-        </button>
+      {/* 1. ÜST MOD SEÇİCİ PİLL'LER (Kompakt, Şık ve Orantılı Segmented Tasarım) */}
+      <div className="flex justify-center w-full">
+        <div className="grid grid-cols-2 sm:inline-flex sm:items-center gap-1 p-1 rounded-xl border border-border/80 bg-card/90 shadow-xs backdrop-blur-md w-full sm:w-auto">
+          <button
+            type="button"
+            onClick={() => setActiveTab("snap")}
+            className={`inline-flex h-7.5 items-center justify-center gap-1.5 rounded-lg px-3 text-[11px] font-bold whitespace-nowrap transition-all cursor-pointer ${
+              activeTab === "snap"
+                ? "bg-primary text-primary-foreground shadow-xs"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
+            }`}
+          >
+            <Crop className="h-3 w-3 shrink-0" />
+            <span>{t.tabSnap}</span>
+          </button>
 
-        <button
-          type="button"
-          onClick={() => setActiveTab("annotate")}
-          className={`inline-flex items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-xs font-bold transition-all cursor-pointer ${
-            activeTab === "annotate"
-              ? "bg-primary text-primary-foreground shadow-sm"
-              : "text-muted-foreground hover:text-foreground hover:bg-muted"
-          }`}
-        >
-          <ArrowUpRight className="h-3.5 w-3.5" />
-          <span>{t.tabAnnotate}</span>
-        </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab("annotate")}
+            className={`inline-flex h-7.5 items-center justify-center gap-1.5 rounded-lg px-3 text-[11px] font-bold whitespace-nowrap transition-all cursor-pointer ${
+              activeTab === "annotate"
+                ? "bg-primary text-primary-foreground shadow-xs"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
+            }`}
+          >
+            <ArrowUpRight className="h-3 w-3 shrink-0" />
+            <span>{t.tabAnnotate}</span>
+          </button>
 
-        <button
-          type="button"
-          onClick={() => setActiveTab("blur")}
-          className={`inline-flex items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-xs font-bold transition-all cursor-pointer ${
-            activeTab === "blur"
-              ? "bg-primary text-primary-foreground shadow-sm"
-              : "text-muted-foreground hover:text-foreground hover:bg-muted"
-          }`}
-        >
-          <EyeOff className="h-3.5 w-3.5" />
-          <span>{t.tabBlur}</span>
-        </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab("blur")}
+            className={`inline-flex h-7.5 items-center justify-center gap-1.5 rounded-lg px-3 text-[11px] font-bold whitespace-nowrap transition-all cursor-pointer ${
+              activeTab === "blur"
+                ? "bg-primary text-primary-foreground shadow-xs"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
+            }`}
+          >
+            <EyeOff className="h-3 w-3 shrink-0" />
+            <span>{t.tabBlur}</span>
+          </button>
 
-        <button
-          type="button"
-          onClick={() => setActiveTab("output")}
-          className={`inline-flex items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-xs font-bold transition-all cursor-pointer ${
-            activeTab === "output"
-              ? "bg-primary text-primary-foreground shadow-sm"
-              : "text-muted-foreground hover:text-foreground hover:bg-muted"
-          }`}
-        >
-          <Copy className="h-3.5 w-3.5" />
-          <span>{t.tabOutput}</span>
-        </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab("output")}
+            className={`inline-flex h-7.5 items-center justify-center gap-1.5 rounded-lg px-3 text-[11px] font-bold whitespace-nowrap transition-all cursor-pointer ${
+              activeTab === "output"
+                ? "bg-primary text-primary-foreground shadow-xs"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
+            }`}
+          >
+            <Copy className="h-3 w-3 shrink-0" />
+            <span>{t.tabOutput}</span>
+          </button>
+        </div>
       </div>
 
       {/* 2. ANA STÜDYO PENCERESİ (Spacious Desktop Card) */}
