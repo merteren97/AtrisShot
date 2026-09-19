@@ -4,6 +4,7 @@ use std::{
 };
 use tauri::{AppHandle, Manager};
 
+#[cfg(windows)]
 const FILE_NAME: &str = "refresh-token-v2.dpapi";
 const LEGACY_FILE_NAME: &str = "session-token.dpapi";
 
@@ -45,6 +46,7 @@ fn path_for(app: &AppHandle, file_name: &str) -> Result<PathBuf, String> {
         .join(file_name))
 }
 
+#[cfg(windows)]
 fn path(app: &AppHandle) -> Result<PathBuf, String> {
     path_for(app, FILE_NAME)
 }

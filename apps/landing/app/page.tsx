@@ -280,7 +280,11 @@ export default function LandingPage() {
                 {/* CTA Düğmeleri: Hızlı İndir + Sinematik Tanıtım Filmi */}
                 <div className="mt-8 flex flex-col sm:flex-row sm:items-center gap-3">
                   <a
-                    href={`/api/releases/download-platform/${platform}`}
+                    href={
+                      platform === "darwin-aarch64"
+                        ? "#download"
+                        : `/api/releases/download-platform/${platform}`
+                    }
                     className="inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-primary px-5 sm:px-6 text-xs sm:text-sm font-extrabold text-primary-foreground shadow-lg shadow-primary/25 transition hover:-translate-y-0.5 hover:bg-primary/90 active:translate-y-0 whitespace-nowrap"
                   >
                     <Download className="h-4 w-4 shrink-0" />
@@ -461,21 +465,18 @@ export default function LandingPage() {
               </div>
             </a>
 
-            {/* macOS İndirme Kartı */}
-            <a
-              href="/api/releases/download-platform/darwin-aarch64"
-              className="group relative rounded-2xl border border-border bg-card p-6 transition-all hover:border-primary hover:-translate-y-1 hover:shadow-xl flex flex-col justify-between"
-            >
+            {/* macOS İndirme Kartı (Yakında) */}
+            <div className="group relative rounded-2xl border border-border/80 bg-card/60 p-6 flex flex-col justify-between opacity-90">
               <div>
                 <div className="flex items-center justify-between">
-                  <div className="grid h-10 w-10 place-items-center rounded-xl bg-primary/10 text-primary">
+                  <div className="grid h-10 w-10 place-items-center rounded-xl bg-muted text-muted-foreground">
                     <Apple className="h-5 w-5" />
                   </div>
-                  <span className="rounded-full bg-primary/15 px-2.5 py-0.5 text-[10px] font-black uppercase text-primary">
+                  <span className="rounded-full bg-primary/10 border border-primary/20 px-2.5 py-0.5 text-[10px] font-black uppercase text-primary">
                     {copy.download.cardMac.badge}
                   </span>
                 </div>
-                <h3 className="mt-4 text-lg font-black group-hover:text-primary transition">
+                <h3 className="mt-4 text-lg font-black text-foreground">
                   {copy.download.cardMac.title}
                 </h3>
                 <p className="text-xs text-muted-foreground mt-1 font-mono">
@@ -485,11 +486,10 @@ export default function LandingPage() {
                   {copy.download.cardMac.type}
                 </p>
               </div>
-              <div className="mt-6 flex items-center gap-1.5 text-xs font-bold text-primary border-t border-border/60 pt-4">
-                <Download className="h-3.5 w-3.5" />
-                <span>{copy.platform.mac}</span>
+              <div className="mt-6 flex items-center gap-1.5 text-xs font-semibold text-muted-foreground border-t border-border/60 pt-4">
+                <span>{copy.platform.macDetail}</span>
               </div>
-            </a>
+            </div>
 
             {/* Linux İndirme Kartı */}
             <a

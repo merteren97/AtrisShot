@@ -31,11 +31,12 @@ export const landingCopy = {
     },
     platform: {
       windows: "Windows İçin İndir",
-      mac: "macOS İçin İndir",
+      mac: "macOS (Yakında)",
       linux: "Linux İçin İndir",
       windowsDetail: "Windows 10 / 11 (x64) · .msi & .exe",
-      macDetail: "macOS 12+ (Apple Silicon & Intel) · .dmg",
+      macDetail: "macOS paketi Apple imzalama anahtarları hazır olduğunda eklenecek.",
       linuxDetail: "Linux (x64) · .AppImage & .deb",
+      macPaused: "macOS paketi Apple imzalama anahtarları hazır olduğunda eklenecek.",
     },
     sandbox: {
       windowTitle: "AtrisShot Studio — Örnek Görünüm",
@@ -134,8 +135,8 @@ export const landingCopy = {
       steps: [
         {
           num: "01",
-          title: "Tetikle ve Yakala",
-          desc: "Kısayoluna bas; manyetik pencere veya serbest kırpma ile alanı anında dondur.",
+          title: "Odaklı yakalama & Tetikleme",
+          desc: "Kısayoluna bas; manyetik pencere veya odaklı yakalama ile alanı anında dondur.",
         },
         {
           num: "02",
@@ -216,9 +217,9 @@ export const landingCopy = {
       },
       cardMac: {
         title: "macOS",
-        version: "v1.0.1 (Apple Silicon & Intel)",
-        type: "Evrensel DMG & App Paketi",
-        badge: "macOS 12+",
+        version: "Apple Silicon & Intel",
+        type: "macOS paketi yakında yayınlanacak",
+        badge: "Yakında",
       },
       cardLinux: {
         title: "Linux Dağıtımları",
@@ -296,11 +297,12 @@ export const landingCopy = {
     },
     platform: {
       windows: "Download for Windows",
-      mac: "Download for macOS",
+      mac: "macOS (Coming Soon)",
       linux: "Download for Linux",
       windowsDetail: "Windows 10 / 11 (x64) · .msi & .exe",
-      macDetail: "macOS 12+ (Apple Silicon & Intel) · .dmg",
+      macDetail: "macOS packages will return when Apple signing keys are ready.",
       linuxDetail: "Linux (x64) · .AppImage & .deb",
+      macPaused: "macOS packages will return when Apple signing keys are ready.",
     },
     sandbox: {
       windowTitle: "AtrisShot Studio — Sample Preview",
@@ -399,8 +401,8 @@ export const landingCopy = {
       steps: [
         {
           num: "01",
-          title: "Trigger & Capture",
-          desc: "Press your shortcut; freeze active windows or drag regions with pixel-perfect boundaries.",
+          title: "Focused capture & Trigger",
+          desc: "Press your shortcut; freeze active windows instantly with focused capture.",
         },
         {
           num: "02",
@@ -481,9 +483,9 @@ export const landingCopy = {
       },
       cardMac: {
         title: "macOS",
-        version: "v1.0.1 (Apple Silicon & Intel)",
-        type: "Universal DMG & App Bundle",
-        badge: "macOS 12+",
+        version: "Apple Silicon & Intel",
+        type: "macOS packages will return soon",
+        badge: "Coming Soon",
       },
       cardLinux: {
         title: "Linux Distributions",
