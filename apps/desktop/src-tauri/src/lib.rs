@@ -1206,7 +1206,9 @@ fn thumbnail_path_for(image_path: &Path, id: &str) -> PathBuf {
         .file_stem()
         .and_then(|value| value.to_str())
         .unwrap_or("atrisshot");
-    parent.join("_preview").join(format!("{stem}-thumb-{id}.png"))
+    parent
+        .join("_preview")
+        .join(format!("{stem}-thumb-{id}.png"))
 }
 
 fn write_thumbnail(image_path: &Path, id: &str) -> Result<PathBuf, String> {
@@ -1952,14 +1954,11 @@ fn set_overlay_presentation(
 
     let max_h = overlay_max_height(&app);
     let (width, height) = if state == "collapsed" {
-        (6.0, f64::from(max_h.max(300)))
+        (32.0, 64.0)
     } else {
         (
             OVERLAY_WINDOW_WIDTH,
-            f64::from(overlay_expanded_height(
-                item_count,
-                max_h,
-            )),
+            f64::from(overlay_expanded_height(item_count.clamp(1, 5), max_h)),
         )
     };
     let target_size = overlay_target_size(width, height, window.scale_factor().unwrap_or(1.0));
@@ -2649,11 +2648,15 @@ mod tests {
 
         for i in 0..3 {
             assert!(root.join(format!("atrisshot-item-{i}.png")).exists());
-            assert!(preview_dir.join(format!("atrisshot-item-{i}-thumb-item-{i}.png")).exists());
+            assert!(preview_dir
+                .join(format!("atrisshot-item-{i}-thumb-item-{i}.png"))
+                .exists());
         }
         for i in 3..5 {
             assert!(!root.join(format!("atrisshot-item-{i}.png")).exists());
-            assert!(!preview_dir.join(format!("atrisshot-item-{i}-thumb-item-{i}.png")).exists());
+            assert!(!preview_dir
+                .join(format!("atrisshot-item-{i}-thumb-item-{i}.png"))
+                .exists());
         }
 
         let _ = fs::remove_dir_all(root);

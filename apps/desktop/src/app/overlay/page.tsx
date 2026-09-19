@@ -21,6 +21,7 @@ import { useUiPreferences } from "@/lib/ui-preferences";
 const AUTO_HIDE_DELAY_MS = 4_000;
 const POINTER_LEAVE_DELAY_MS = 500;
 const SHOT_DRAG_THRESHOLD_PX = 7;
+const MAX_OVERLAY_ENTRIES = 5;
 const DISMISSED_OVERLAY_STORAGE_KEY = "atris-shot.dismissed-overlay-entries";
 
 type PresentationState = "expanded" | "collapsed" | "hidden";
@@ -72,11 +73,11 @@ function persistDismissedOverlayIds(ids: Set<string>) {
 }
 
 function getAvailableOverlayCapacity(): number {
-  if (typeof window === "undefined") return 8;
+  if (typeof window === "undefined") return MAX_OVERLAY_ENTRIES;
   const usableHeight = window.screen?.availHeight || window.innerHeight || 900;
   // Card height 175px + gap 12px = 187px; reserve padding and margins
   const calculated = Math.floor((usableHeight - 96 - 16) / 187);
-  return Math.max(3, calculated);
+  return Math.min(MAX_OVERLAY_ENTRIES, Math.max(3, calculated));
 }
 
 function upsertOverlayEntry(
@@ -281,7 +282,7 @@ export default function OverlayPage({ onPreview }: OverlayPageProps = {}) {
         if (!(event.target as HTMLElement).closest("button,[data-shot-drag]")) void nativeRuntime.startDragging();
       }}
     >
-      <div className="flex max-h-full w-full flex-col justify-end gap-3 overflow-hidden">
+      <div className="flex max-h-full w-full flex-col gap-3 justify-end overflow-hidden">
         {entries.map((entry) => (
           <OverlayCard
             key={entry.id}
@@ -444,7 +445,7 @@ function OverlayCard({ entry, text, onCollapse, onDismiss, onDelete, onPreview }
         <img
           src={previewUrl}
           alt={text.preview}
-          className="block h-full w-full select-none object-cover object-center transition-transform duration-300 ease-out group-hover:scale-105"
+          className="block h-full w-full select-none object-fill object-cover object-center transition-transform duration-300 ease-out group-hover:scale-105"
           decoding="async"
           draggable={false}
         />
