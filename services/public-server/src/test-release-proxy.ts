@@ -83,6 +83,12 @@ await withReleaseServer(fetchImpl, async (port) => {
   assert(macosArmBody.signature === "macos-arm-signed-value", "Apple Silicon macOS signature missing");
   assert(macosArmBody.url === "https://shot.atrishub.com/api/releases/download/9", "Apple Silicon update URL must use the matching architecture asset");
 
+  const latestResponse = await fetch(`http://127.0.0.1:${port}/api/releases/latest`);
+  assert(latestResponse.status === 200, "latest release must be returned");
+  const latestBody = (await latestResponse.json()) as { tag_name: string; version: string };
+  assert(latestBody.tag_name === "v0.2.0", "latest release tag must match");
+  assert(latestBody.version === "0.2.0", "latest release version must match");
+
   const current = await fetch(`http://127.0.0.1:${port}/api/releases/update/windows-x86_64/0.2.0`);
   assert(current.status === 204, "current version must return no update");
   const platformDownload = await fetch(`http://127.0.0.1:${port}/api/releases/download-platform/windows-x86_64`, { redirect: "manual" });

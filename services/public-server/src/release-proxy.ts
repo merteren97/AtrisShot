@@ -1,6 +1,6 @@
 import { Router, type Request } from "express";
 
-type Asset = { id: number; name: string };
+type Asset = { id: number; name: string; browser_download_url?: string };
 type Release = { tag_name?: string; body?: string; published_at?: string; assets?: Asset[] };
 type Options = { fetchImpl?: typeof fetch; publicBaseUrl?: string };
 
@@ -122,6 +122,25 @@ export function createReleaseRouter(options: Options = {}) {
     const response = await fetchImpl(`https://api.github.com/repos/${repository.owner}/${repository.repo}/releases/latest`, { headers: headers("application/vnd.github+json") });
     return response.ok ? await response.json() as Release : null;
   };
+
+  router.get("/latest", async (_request, response) => {
+    try {
+      const release = await latest();
+      if (!release?.tag_name) return response.status(404).json({ error: "Release not found." });
+      return response.json({
+        tag_name: release.tag_name,
+        version: release.tag_name.replace(/^v/, ""),
+        published_at: release.published_at,
+        assets: release.assets?.map((asset) => ({
+          id: asset.id,
+          name: asset.name,
+          browser_download_url: asset.browser_download_url,
+        })),
+      });
+    } catch {
+      return response.status(502).json({ error: "Release service unavailable." });
+    }
+  });
 
   router.get("/download/:id", async (request, response) => {
     try {

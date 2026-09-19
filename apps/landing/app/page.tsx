@@ -43,6 +43,11 @@ export default function LandingPage() {
   const [languageOpen, setLanguageOpen] = useState(false);
   const [filmModalOpen, setFilmModalOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [version, setVersion] = useState<string>("v1.0.11");
+  const [downloadUrls, setDownloadUrls] = useState<Record<string, string>>({
+    "windows-x86_64": "/api/releases/download-platform/windows-x86_64",
+    "linux-x86_64": "/api/releases/download-platform/linux-x86_64",
+  });
 
   const languageRef = useRef<HTMLDivElement>(null);
   const copy = landingCopy[locale];
@@ -57,6 +62,60 @@ export default function LandingPage() {
     setLocale(nextLocale);
     document.documentElement.lang = nextLocale;
     setMounted(true);
+
+    let active = true;
+    async function resolveRelease() {
+      try {
+        let releaseData: {
+          tag_name?: string;
+          assets?: Array<{ name: string; browser_download_url?: string }>;
+        } | null = null;
+
+        try {
+          const res = await fetch("/api/releases/latest");
+          if (res.ok) {
+            releaseData = await res.json();
+          }
+        } catch {
+          // proxy fetch failure ignored
+        }
+
+        if (!releaseData?.tag_name) {
+          try {
+            const ghRes = await fetch(
+              "https://api.github.com/repos/merteren97/AtrisShot/releases/latest"
+            );
+            if (ghRes.ok) {
+              releaseData = await ghRes.json();
+            }
+          } catch {
+            // direct github fetch failure ignored
+          }
+        }
+
+        if (active && releaseData?.tag_name) {
+          setVersion(releaseData.tag_name);
+          const winAsset = releaseData.assets?.find(
+            (a) => a.name?.endsWith("-setup.exe") || a.name?.endsWith(".msi")
+          )?.browser_download_url;
+          const linuxAsset = releaseData.assets?.find(
+            (a) => a.name?.endsWith(".AppImage") || a.name?.endsWith(".deb")
+          )?.browser_download_url;
+
+          setDownloadUrls({
+            "windows-x86_64": winAsset || "/api/releases/download-platform/windows-x86_64",
+            "linux-x86_64": linuxAsset || "/api/releases/download-platform/linux-x86_64",
+          });
+        }
+      } catch {
+        // fallback remains active
+      }
+    }
+
+    resolveRelease();
+    return () => {
+      active = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -131,7 +190,7 @@ export default function LandingPage() {
                 ATRISSHOT
               </span>
               <span className="hidden sm:inline-block rounded-md border border-primary/30 bg-primary/10 px-1.5 py-0.5 font-mono text-[9px] font-black uppercase text-primary">
-                v1.0.1
+                {version}
               </span>
             </div>
           </a>
@@ -264,7 +323,7 @@ export default function LandingPage() {
                 {/* Canlı Sinyal Noktası ve Eyebrow */}
                 <div className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">
                   <span className="h-2 w-2 rounded-full bg-primary animate-pulse-dot" />
-                  <span>{copy.hero.eyebrow}</span>
+                  <span>{copy.hero.eyebrow.replace(/v\d+\.\d+\.\d+/, version)}</span>
                 </div>
 
                 {/* Ana Başlık */}
@@ -283,7 +342,7 @@ export default function LandingPage() {
                     href={
                       platform === "darwin-aarch64"
                         ? "#download"
-                        : `/api/releases/download-platform/${platform}`
+                        : downloadUrls[platform] || `/api/releases/download-platform/${platform}`
                     }
                     className="inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-primary px-5 sm:px-6 text-xs sm:text-sm font-extrabold text-primary-foreground shadow-lg shadow-primary/25 transition hover:-translate-y-0.5 hover:bg-primary/90 active:translate-y-0 whitespace-nowrap"
                   >
@@ -437,7 +496,7 @@ export default function LandingPage() {
           <div className="mt-10 grid gap-5 md:grid-cols-3 text-left max-w-5xl mx-auto">
             {/* Windows İndirme Kartı */}
             <a
-              href="/api/releases/download-platform/windows-x86_64"
+              href={downloadUrls["windows-x86_64"] || "/api/releases/download-platform/windows-x86_64"}
               className="group relative rounded-2xl border border-border bg-card p-6 transition-all hover:border-primary hover:-translate-y-1 hover:shadow-xl flex flex-col justify-between"
             >
               <div>
@@ -453,7 +512,7 @@ export default function LandingPage() {
                   {copy.download.cardWindows.title}
                 </h3>
                 <p className="text-xs text-muted-foreground mt-1 font-mono">
-                  {copy.download.cardWindows.version}
+                  {copy.download.cardWindows.version.replace(/v\d+\.\d+\.\d+/, version)}
                 </p>
                 <p className="text-xs text-muted-foreground mt-0.5">
                   {copy.download.cardWindows.type}
@@ -480,7 +539,7 @@ export default function LandingPage() {
                   {copy.download.cardMac.title}
                 </h3>
                 <p className="text-xs text-muted-foreground mt-1 font-mono">
-                  {copy.download.cardMac.version}
+                  {copy.download.cardMac.version.replace(/v\d+\.\d+\.\d+/, version)}
                 </p>
                 <p className="text-xs text-muted-foreground mt-0.5">
                   {copy.download.cardMac.type}
@@ -493,7 +552,7 @@ export default function LandingPage() {
 
             {/* Linux İndirme Kartı */}
             <a
-              href="/api/releases/download-platform/linux-x86_64"
+              href={downloadUrls["linux-x86_64"] || "/api/releases/download-platform/linux-x86_64"}
               className="group relative rounded-2xl border border-border bg-card p-6 transition-all hover:border-primary hover:-translate-y-1 hover:shadow-xl flex flex-col justify-between"
             >
               <div>
@@ -509,7 +568,7 @@ export default function LandingPage() {
                   {copy.download.cardLinux.title}
                 </h3>
                 <p className="text-xs text-muted-foreground mt-1 font-mono">
-                  {copy.download.cardLinux.version}
+                  {copy.download.cardLinux.version.replace(/v\d+\.\d+\.\d+/, version)}
                 </p>
                 <p className="text-xs text-muted-foreground mt-0.5">
                   {copy.download.cardLinux.type}
