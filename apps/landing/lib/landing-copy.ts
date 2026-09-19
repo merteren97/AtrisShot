@@ -14,7 +14,7 @@ export const landingCopy = {
     language: { label: "Dil seçimi", tr: "Türkçe", en: "English" },
     theme: { light: "Açık temaya geç", dark: "Koyu temaya geç" },
     hero: {
-      eyebrow: "ATRIS EKOSİSTEMİ · v1.0.1 HAZIR",
+      eyebrow: "ATRIS EKOSİSTEMİ · v1.0.11 HAZIR",
       title: "Piksel hassasiyetinde yakala. Anında paylaş.",
       description:
         "AtrisShot, ekran görüntüsünü akışını bölmeden yakalayıp işaretlemeni sağlayan profesyonel bir Tauri masaüstü stüdyosudur. Manyetik pencere tespiti, vektörel notlar ve akıllı sansürleme ile görseller doğrudan panoda ve dosya yolunda hazır.",
@@ -211,7 +211,7 @@ export const landingCopy = {
         "Windows, macOS ve Linux için yerel derlenmiş ikili paketler. Hızlı kurulum, arka planda otomatik güncelleme ve tam sistem uyumu.",
       cardWindows: {
         title: "Windows 10 / 11",
-        version: "v1.0.1 (x64)",
+        version: "v1.0.11 (x64)",
         type: "MSI Yükleyici & Taşınabilir EXE",
         badge: "Önerilen",
       },
@@ -223,7 +223,7 @@ export const landingCopy = {
       },
       cardLinux: {
         title: "Linux Dağıtımları",
-        version: "v1.0.1 (x64)",
+        version: "v1.0.11 (x64)",
         type: "AppImage & Debian (.deb)",
         badge: "Topluluk",
       },
@@ -280,7 +280,7 @@ export const landingCopy = {
     language: { label: "Select language", tr: "Türkçe", en: "English" },
     theme: { light: "Switch to light theme", dark: "Switch to dark theme" },
     hero: {
-      eyebrow: "ATRIS ECOSYSTEM · v1.0.1 READY",
+      eyebrow: "ATRIS ECOSYSTEM · v1.0.11 READY",
       title: "Capture with pixel precision. Share without friction.",
       description:
         "AtrisShot is a professional Tauri desktop studio designed to capture and annotate screenshots without breaking flow. Magnetic window snapping, vector annotations, and smart pixelate blur keep your work ready in your clipboard and file path.",
@@ -477,7 +477,7 @@ export const landingCopy = {
         "Optimized native binaries for Windows, macOS, and Linux. Fast setup, background auto-updates, and native performance.",
       cardWindows: {
         title: "Windows 10 / 11",
-        version: "v1.0.1 (x64)",
+        version: "v1.0.11 (x64)",
         type: "MSI Installer & Portable EXE",
         badge: "Recommended",
       },
@@ -489,7 +489,7 @@ export const landingCopy = {
       },
       cardLinux: {
         title: "Linux Distributions",
-        version: "v1.0.1 (x64)",
+        version: "v1.0.11 (x64)",
         type: "AppImage & Debian (.deb)",
         badge: "Community",
       },

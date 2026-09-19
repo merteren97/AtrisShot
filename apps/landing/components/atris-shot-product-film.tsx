@@ -82,7 +82,7 @@ function ProductFilmComposition({ locale }: { locale: LandingLocale }) {
               ATRISSHOT
             </span>
             <span className="ml-2 font-mono text-[10px] text-slate-400">
-              DESKTOP STUDIO v1.0.1
+              DESKTOP STUDIO v1.0.11
             </span>
           </div>
         </div>
