@@ -31,6 +31,8 @@ jobs:
         include:
           - { os: windows-latest, releaseTarget: windows-x86_64, rustTarget: x86_64-pc-windows-msvc }
           - { os: ubuntu-22.04, releaseTarget: linux-x86_64, rustTarget: x86_64-unknown-linux-gnu }
+          - { os: macos-latest, releaseTarget: darwin-aarch64, rustTarget: aarch64-apple-darwin }
+          - { os: macos-13, releaseTarget: darwin-x86_64, rustTarget: x86_64-apple-darwin }
     runs-on: ${{ matrix.os }}
     env:
       WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
@@ -120,6 +122,8 @@ jobs:
             apps/desktop/src-tauri/target/**/release/bundle/**/*.msi
             apps/desktop/src-tauri/target/**/release/bundle/**/*.AppImage
             apps/desktop/src-tauri/target/**/release/bundle/**/*.deb
+            apps/desktop/src-tauri/target/**/release/bundle/**/*.dmg
+            apps/desktop/src-tauri/target/**/release/bundle/**/*.app.tar.gz
             apps/desktop/src-tauri/target/**/release/bundle/**/*.sig
 
   publish:
@@ -158,6 +162,6 @@ jobs:
         shell: bash
         run: |
           sleep 10
-          for target in windows-x86_64 linux-x86_64; do
+          for target in windows-x86_64 linux-x86_64 darwin-aarch64 darwin-x86_64; do
             curl --fail "https://shot.atrishub.com/api/releases/update/${target}/0.0.0"
           done

@@ -35,6 +35,7 @@ const APP_COMMANDS: &[&str] = &[
     "hide_editor_window",
     "set_tray_locale",
     "restart_application",
+    "prune_shot_history",
 ];
 
 fn main() {

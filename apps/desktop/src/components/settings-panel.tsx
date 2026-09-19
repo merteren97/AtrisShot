@@ -243,6 +243,9 @@ export function SettingsPanel({
     setError("");
     try {
       await saveDesktopSettings(normalized);
+      if (savingKey === "historyLimit" && isNativeRuntime()) {
+        await nativeRuntime.pruneShotHistory(normalized.historyLimit);
+      }
       setSettings(normalized);
       onSettingsChanged(normalized);
       setMessage(text.preferenceSaved);
@@ -621,7 +624,7 @@ export function SettingsPanel({
             label={text.historyLimit}
             value={settings.historyLimit}
             min={10}
-            max={500}
+            max={1000}
             onChange={(value) => void persist({ ...settings, historyLimit: value }, "historyLimit")}
           />
         </CardContent>

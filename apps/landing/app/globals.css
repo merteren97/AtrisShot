@@ -3,42 +3,67 @@
 
 :root {
   color-scheme: light;
-  --background: oklch(0.982 0.006 105);
-  --foreground: oklch(0.18 0.026 168);
-  --card: oklch(1 0 0);
-  --muted-foreground: oklch(0.47 0.032 154);
-  --primary: oklch(0.67 0.16 72);
-  --primary-foreground: oklch(0.16 0.028 168);
-  --accent: oklch(0.91 0.044 154);
-  --border: oklch(0.88 0.018 122);
+  --background: 40 28% 97%;          /* Sıcak albast / parşömen (#fbf9f5) */
+  --foreground: 200 19% 16%;         /* Derin mürekkep arduvazı (#212c30) */
+  --card: 40 40% 99%;                /* Temiz krem kart yüzeyi (#fffdfa) */
+  --card-foreground: 200 19% 16%;
+  --muted: 195 13% 92%;
+  --muted-foreground: 200 10% 42%;
+  --border: 195 10% 84%;
+  --input: 195 10% 78%;
+  --primary: 38 92% 50%;             /* AtrisShot Kehribar (Amber Gold) */
+  --primary-foreground: 40 40% 98%;
+  --accent: 38 92% 50%;
+  --accent-soft: 38 92% 94%;
+  --accent-foreground: 200 19% 16%;
+  --ring: 38 92% 50%;
+  --feature: 38 92% 50%;
+  --feature-soft: 38 92% 94%;
+  --shot-amber: 38 92% 50%;
+  --shot-amber-glow: rgba(245, 158, 11, 0.22);
 }
 
 .dark {
   color-scheme: dark;
-  --background: oklch(0.145 0.018 155);
-  --foreground: oklch(0.93 0.012 104);
-  --card: oklch(0.19 0.024 158);
-  --muted-foreground: oklch(0.7 0.025 118);
-  --primary: oklch(0.74 0.15 75);
-  --primary-foreground: oklch(0.16 0.03 160);
-  --accent: oklch(0.33 0.065 161);
-  --border: oklch(0.31 0.032 156);
+  --background: 210 7% 10%;          /* Derin obsidyen arduvaz (#181a1c) */
+  --foreground: 40 18% 94%;          /* Sıcak kağıt beyazı (#f3f1ec) */
+  --card: 207 8% 14%;                /* Katmanlı gece paneli (#212427) */
+  --card-foreground: 40 18% 94%;
+  --muted: 204 9% 18%;
+  --muted-foreground: 202 10% 66%;
+  --border: 205 9% 25%;
+  --input: 205 9% 32%;
+  --primary: 38 92% 54%;             /* Parlak kehribar altın */
+  --primary-foreground: 210 7% 10%;
+  --accent: 38 92% 54%;
+  --accent-soft: 38 92% 16%;
+  --accent-foreground: 40 18% 94%;
+  --ring: 38 92% 54%;
+  --feature: 38 92% 54%;
+  --feature-soft: 38 92% 16%;
+  --shot-amber: 38 92% 54%;
+  --shot-amber-glow: rgba(245, 158, 11, 0.28);
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-card: var(--card);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-primary: var(--primary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-accent: var(--accent);
-  --color-border: var(--border);
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-accent: hsl(var(--accent));
+  --color-accent-soft: hsl(var(--accent-soft));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-border: hsl(var(--border));
+  --color-ring: hsl(var(--ring));
 }
 
 * {
   box-sizing: border-box;
-  border-color: var(--border);
+  border-color: hsl(var(--border));
 }
 
 html {
@@ -52,30 +77,119 @@ body {
 
 body {
   margin: 0;
-  background: var(--background);
-  color: var(--foreground);
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
 }
 
 button,
-select {
+select,
+input {
   font: inherit;
 }
 
 ::selection {
-  background: color-mix(in oklab, var(--primary) 28%, transparent);
+  background: hsla(var(--primary), 0.25);
+  color: hsl(var(--foreground));
 }
 
+/* Editoryal Serif Aksanı */
+.font-serif-accent {
+  font-family: Georgia, Cambria, "Times New Roman", Times, serif;
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Arka Plan Desenleri & Gölgeler */
 .hero-grid {
   background-image:
-    linear-gradient(to right, color-mix(in oklab, var(--border) 48%, transparent) 1px, transparent 1px),
-    linear-gradient(to bottom, color-mix(in oklab, var(--border) 48%, transparent) 1px, transparent 1px);
-  background-size: 54px 54px;
-  mask-image: linear-gradient(to bottom, black, transparent 78%);
+    linear-gradient(to right, hsla(var(--border), 0.55) 1px, transparent 1px),
+    linear-gradient(to bottom, hsla(var(--border), 0.55) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: radial-gradient(ellipse 75% 65% at 50% 25%, black 40%, transparent 85%);
 }
 
-.hero-glow {
-  background: color-mix(in oklab, var(--primary) 18%, transparent);
+.hero-radial-glow {
+  background: radial-gradient(circle at 50% 30%, hsla(var(--primary), 0.16), transparent 70%);
+}
+
+.glass-panel {
+  background: hsla(var(--card), 0.76);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid hsla(var(--border), 0.8);
+}
+
+.dark .glass-panel {
+  background: hsla(var(--card), 0.65);
+  border: 1px solid hsla(var(--border), 0.6);
+}
+
+/* Deklanşör Flaş Animasyonu */
+@keyframes shutter-flash {
+  0% {
+    opacity: 0.92;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+.animate-shutter {
+  animation: shutter-flash 0.42s ease-out forwards;
+}
+
+/* Yanıp sönen canlı sinyal noktası */
+@keyframes pulse-dot {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.35);
+    opacity: 0.5;
+  }
+}
+
+.animate-pulse-dot {
+  animation: pulse-dot 2.2s infinite ease-in-out;
+}
+
+/* 3D Klavye Tuş Çipi */
+.key-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-weight: 700;
+  border-radius: 8px;
+  box-shadow: 0 3px 0 0 hsla(var(--border), 1), 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  transition: all 0.1s ease;
+  user-select: none;
+}
+
+.key-chip.is-active {
+  transform: translateY(2px);
+  box-shadow: 0 1px 0 0 hsla(var(--border), 1);
+  background-color: hsla(var(--primary), 0.2);
+  border-color: hsl(var(--primary));
+  color: hsl(var(--primary));
+}
+
+/* Damalı saydam zemin (Checkerboard) */
+.checker-pattern {
+  background-image:
+    linear-gradient(45deg, hsla(var(--muted), 0.45) 25%, transparent 25%),
+    linear-gradient(-45deg, hsla(var(--muted), 0.45) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, hsla(var(--muted), 0.45) 75%),
+    linear-gradient(-45deg, transparent 75%, hsla(var(--muted), 0.45) 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0px;
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -1,14 +1,32 @@
 "use client";
 
-import React from "react";
+import React, { useRef, useEffect } from "react";
 import { Player, type PlayerRef } from "@remotion/player";
 import { AbsoluteFill, Audio, Easing, interpolate, useCurrentFrame } from "remotion";
-import { Check, Clipboard, Copy, Crop, Edit3, FolderOpen, History, Image, MousePointer2, PenLine, Settings, ShieldCheck, SquareDashedMousePointer, Type } from "lucide-react";
+import {
+  ArrowUpRight,
+  Check,
+  Code2,
+  Copy,
+  Crop,
+  EyeOff,
+  FolderOpen,
+  Laptop,
+  Lock,
+  Monitor,
+  MousePointer2,
+  MoveUpRight,
+  ShieldCheck,
+  Sparkles,
+  Square,
+  Terminal,
+  Type,
+} from "lucide-react";
 import type { LandingLocale } from "../lib/landing-copy";
 import { landingCopy } from "../lib/landing-copy";
 
 const FPS = 30;
-const DURATION = 720;
+const DURATION = 720; // 24 seconds at 30 fps
 
 function ease(frame: number, input: [number, number], output: [number, number]) {
   return interpolate(frame, input, output, {
@@ -18,237 +36,453 @@ function ease(frame: number, input: [number, number], output: [number, number]) 
   });
 }
 
+// Renk Swatch'ları
+const SWATCHES = ["#f59e0b", "#0ea5e9", "#ef4444", "#22c55e", "#ffffff"];
+
 function ProductFilmComposition({ locale }: { locale: LandingLocale }) {
   const frame = useCurrentFrame();
   const copy = landingCopy[locale].film;
+
+  // 4 Sahne: Her biri 180 frame (6 saniye)
   const scene = Math.min(3, Math.floor(frame / 180));
   const localFrame = frame - scene * 180;
-  const enter = ease(localFrame, [0, 26], [0, 1]);
+  const enter = ease(localFrame, [0, 22], [0, 1]);
   const progress = interpolate(frame, [0, DURATION - 1], [0, 100]);
+
   const [eyebrow, title, tag] = copy.scenes[scene];
 
+  // Sahneye göre aktif araç
+  const activeTool =
+    scene === 0 ? "crop" : scene === 1 ? "arrow" : scene === 2 ? "blur" : "select";
+
   return (
-    <AbsoluteFill className="overflow-hidden bg-[#07110d] text-white">
-      <Audio src="/media/atrisshot-product-theme.wav" volume={0.32} />
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_76%_22%,rgba(245,158,11,0.18),transparent_34%),radial-gradient(circle_at_22%_78%,rgba(20,184,166,0.15),transparent_38%)]" />
-      <div className="absolute inset-0 opacity-[0.09]" style={{ backgroundImage: "linear-gradient(to right, #fff 1px, transparent 1px), linear-gradient(to bottom, #fff 1px, transparent 1px)", backgroundSize: "52px 52px" }} />
+    <AbsoluteFill className="overflow-hidden bg-[#090d0b] text-white select-none font-sans">
+      {/* 24 Saniyelik Slow Ambient Film Müziği */}
+      <Audio src="/media/atrisshot-product-theme.wav" volume={0.65} />
 
-      <div className="relative grid h-full grid-cols-[0.78fr_1.22fr] gap-10 px-14 py-12">
-        <section className="flex flex-col justify-center">
-          <div className="inline-flex w-fit items-center gap-3 rounded-full border border-orange-300/20 bg-orange-300/10 px-5 py-3 text-[19px] font-black text-orange-200">
-            <img src="/brand/atris-shot-mark-dark.svg" className="h-8 w-8 rounded-lg" alt="" />
-            ATRISSHOT
-          </div>
-          <div style={{ opacity: enter, transform: `translateY(${interpolate(enter, [0, 1], [26, 0])}px)` }}>
-            <p className="mt-12 text-[18px] font-black uppercase tracking-[0.2em] text-orange-300">{eyebrow}</p>
-            <h2 className="mt-4 text-[62px] font-black leading-[0.96] tracking-[-0.04em]">{title}</h2>
-            <p className="mt-7 text-[24px] leading-[1.45] text-slate-300">{tag}</p>
-          </div>
-          <div className="mt-auto flex items-center gap-3 text-[15px] font-bold text-slate-500">
-            <ShieldCheck className="h-5 w-5 text-orange-300" />
-            {copy.footer}
-          </div>
-        </section>
+      {/* Arka Plan Atmosferi: Derin Obsidian Studio & Ambient Radial Glow */}
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(245,158,11,0.14),transparent_50%),radial-gradient(circle_at_80%_90%,rgba(16,185,129,0.10),transparent_50%)]" />
+      <div
+        className="absolute inset-0 opacity-[0.06]"
+        style={{
+          backgroundImage:
+            "linear-gradient(to right, #fff 1px, transparent 1px), linear-gradient(to bottom, #fff 1px, transparent 1px)",
+          backgroundSize: "44px 44px",
+        }}
+      />
 
-        <section className="relative flex items-center justify-center">
-          <DesktopWindow scene={scene} frame={localFrame} locale={locale} />
-          <CaptureOverlay scene={scene} frame={localFrame} locale={locale} />
-        </section>
+      {/* Üst Bilgi Başlığı (Cinematic Top Bar) */}
+      <div className="absolute top-5 left-8 right-8 z-30 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-amber-500 to-amber-700 shadow-lg shadow-amber-500/20">
+            <Crop className="h-5 w-5 text-slate-950 stroke-[2.5]" />
+          </div>
+          <div>
+            <span className="text-[13px] font-black tracking-widest text-amber-400 uppercase">
+              ATRISSHOT
+            </span>
+            <span className="ml-2 font-mono text-[10px] text-slate-400">
+              DESKTOP STUDIO v1.0.1
+            </span>
+          </div>
+        </div>
+
+        {/* Aktif Özellik Rozeti (Dynamic Stage Pill) */}
+        <div
+          style={{ opacity: enter }}
+          className="flex items-center gap-2.5 rounded-full border border-amber-400/30 bg-amber-400/10 px-4 py-1.5 backdrop-blur-md"
+        >
+          <span className="h-2 w-2 rounded-full bg-amber-400 animate-ping" />
+          <span className="text-[11px] font-black tracking-wider text-amber-200 uppercase">
+            {scene + 1} / 4 · {eyebrow}
+          </span>
+          <span className="text-[11px] text-slate-400">|</span>
+          <span className="text-[11px] font-medium text-slate-200">{tag}</span>
+        </div>
+
+        <div className="hidden sm:flex items-center gap-2 font-mono text-[11px] text-slate-400">
+          <ShieldCheck className="h-4 w-4 text-emerald-400" />
+          <span>Rust · Tauri v2 Native</span>
+        </div>
       </div>
-      <div className="absolute bottom-7 left-1/2 flex w-[560px] -translate-x-1/2 items-center gap-4">
-        <span className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-500">{copy.music}</span>
-        <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/10">
-          <div className="h-full rounded-full bg-orange-400" style={{ width: `${progress}%` }} />
+
+      {/* Ana Ekran: Birebir AtrisShot Masaüstü Uygulaması UI'ı */}
+      <div className="absolute inset-x-8 top-18 bottom-14 flex items-center justify-center">
+        <div className="relative h-full w-full max-w-[1140px] overflow-hidden rounded-2xl border border-white/15 bg-[#0e1411] shadow-2xl shadow-black/80 flex flex-col">
+          {/* 1. Uygulama Başlık Çubuğu (Window Titlebar) */}
+          <div className="flex h-11 shrink-0 items-center justify-between border-b border-white/10 bg-black/40 px-4">
+            <div className="flex items-center gap-2">
+              <span className="h-3 w-3 rounded-full bg-[#ef4444]" />
+              <span className="h-3 w-3 rounded-full bg-[#f59e0b]" />
+              <span className="h-3 w-3 rounded-full bg-[#22c55e]" />
+              <span className="ml-3 font-mono text-[11px] font-semibold text-slate-300">
+                AtrisShot Studio — {scene === 0 ? "display_topology_feed.rs" : "shot_2026_release.png"}
+              </span>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <span className="rounded border border-white/10 bg-white/5 px-2 py-0.5 font-mono text-[10px] text-slate-400">
+                100% · 2560 × 1440 · 144Hz
+              </span>
+              <span className="rounded-md bg-amber-400/15 border border-amber-400/30 px-2 py-0.5 text-[10px] font-black text-amber-300 uppercase">
+                FREE TIER
+              </span>
+            </div>
+          </div>
+
+          {/* 2. Gerçek AtrisShot Araç Çubuğu (Toolbar) */}
+          <div className="flex h-12 shrink-0 items-center justify-between border-b border-white/10 bg-[#121a15] px-4">
+            <div className="flex items-center gap-1.5">
+              {[
+                { id: "select", icon: MousePointer2, label: locale === "tr" ? "Seçim" : "Select" },
+                { id: "crop", icon: Crop, label: locale === "tr" ? "Manyetik Kırpma" : "Crop" },
+                { id: "arrow", icon: ArrowUpRight, label: locale === "tr" ? "Yön Oku" : "Arrow" },
+                { id: "rect", icon: Square, label: locale === "tr" ? "Kutu" : "Box" },
+                { id: "blur", icon: EyeOff, label: locale === "tr" ? "Sansür" : "Blur" },
+              ].map((tool) => (
+                <div
+                  key={tool.id}
+                  className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[11px] font-bold transition-all ${
+                    activeTool === tool.id
+                      ? "bg-amber-400/20 text-amber-300 border border-amber-400/40 shadow-xs"
+                      : "text-slate-400 hover:text-slate-200"
+                  }`}
+                >
+                  <tool.icon className="h-3.5 w-3.5" />
+                  <span>{tool.label}</span>
+                </div>
+              ))}
+            </div>
+
+            {/* Renk Swatch'ları */}
+            <div className="flex items-center gap-1.5 px-3 border-l border-r border-white/10">
+              {SWATCHES.map((swatch, idx) => (
+                <span
+                  key={swatch}
+                  className={`h-3.5 w-3.5 rounded-full transition-transform ${
+                    idx === 0 ? "scale-125 ring-2 ring-amber-400 ring-offset-1 ring-offset-slate-900" : "opacity-60"
+                  }`}
+                  style={{ backgroundColor: swatch }}
+                />
+              ))}
+            </div>
+
+            {/* Çıktı Butonları */}
+            <div className="flex items-center gap-2">
+              <div
+                className={`flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-bold border ${
+                  scene === 3
+                    ? "border-amber-400 bg-amber-400 text-slate-950 shadow-md scale-105"
+                    : "border-white/15 bg-white/5 text-slate-300"
+                }`}
+              >
+                <Copy className="h-3.5 w-3.5" />
+                <span>{locale === "tr" ? "Resmi Kopyala" : "Copy Image"}</span>
+              </div>
+              <div className="flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-bold border border-white/15 bg-white/5 text-slate-300">
+                <FolderOpen className="h-3.5 w-3.5" />
+                <span>{locale === "tr" ? "Path" : "Path"}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* 3. Çalışma Alanı / Sahne İçeriği */}
+          <div className="relative flex-1 overflow-hidden bg-[#070b09] p-6 font-mono">
+            {/* Arka Plan IDE ve Sistem Arayüzü */}
+            <div className="space-y-3 text-[12px] leading-relaxed text-slate-400">
+              <div className="flex items-center justify-between border-b border-white/10 pb-2 text-[11px] text-slate-400">
+                <span className="flex items-center gap-2 text-slate-200">
+                  <Terminal className="h-3.5 w-3.5 text-amber-400" />
+                  src/runtime/auth_provider.rs — Tauri Native Engine
+                </span>
+                <span className="text-emerald-400 font-bold">PID: 4892 · 14.2 MB RAM</span>
+              </div>
+
+              <p className="text-slate-200">
+                <span className="text-amber-400 font-bold">pub struct</span> AuthSessionConfig &#123;
+              </p>
+              <p className="pl-6">
+                pub host_endpoint: <span className="text-emerald-400">&quot;https://api.atrishub.com/v2&quot;</span>,
+              </p>
+              <p className="pl-6">
+                pub storage_adapter: <span className="text-sky-400">&quot;dpapi-encrypted-sqlite&quot;</span>,
+              </p>
+
+              {/* Hassas Anahtar Satırı (Sansürlenen Alan) */}
+              <div className="flex items-center gap-3 pl-6 py-1">
+                <span>pub api_secret_key:</span>
+                {scene >= 2 ? (
+                  <span className="relative rounded bg-amber-400/20 border border-amber-400/40 px-3 py-0.5 font-bold tracking-widest text-amber-300 backdrop-blur-md">
+                    ••••••••••••••••••••••••••••••••
+                    <span className="ml-2 rounded bg-amber-400/30 px-1.5 py-0.5 text-[9px] text-amber-200 uppercase">
+                      REDACTED
+                    </span>
+                  </span>
+                ) : (
+                  <span className="rounded bg-rose-500/20 border border-rose-500/40 px-2.5 py-0.5 text-rose-300 font-bold">
+                    &quot;atris_sec_99482910a8bc43f02931aef&quot;
+                  </span>
+                )}
+              </div>
+
+              <p className="pl-6">
+                pub telemetry_mode: <span className="text-amber-400 font-semibold">&quot;zero-cloud-leakage&quot;</span>,
+              </p>
+              <p className="pl-6">
+                pub local_offline_cache: <span className="text-emerald-400 font-semibold">true</span>,
+              </p>
+              <p className="text-slate-200">&#125;</p>
+            </div>
+
+            {/* ======================================================== */}
+            {/* SAHNE 0 (0s - 6s): Manyetik Pencere Algılama             */}
+            {/* ======================================================== */}
+            {scene === 0 && (
+              <>
+                {/* Hareketli İmleç */}
+                <div
+                  className="absolute pointer-events-none z-20"
+                  style={{
+                    left: `${ease(localFrame, [10, 80], [75, 42])}%`,
+                    top: `${ease(localFrame, [10, 80], [20, 48])}%`,
+                  }}
+                >
+                  <MousePointer2 className="h-6 w-6 text-white drop-shadow-[0_2px_8px_rgba(0,0,0,0.8)] fill-amber-400 text-slate-950" />
+                </div>
+
+                {/* Manyetik Kilitlenme Çerçevesi */}
+                <div
+                  className="absolute pointer-events-none rounded-xl border-2 border-amber-400 bg-amber-400/[0.04] shadow-[0_0_24px_rgba(245,158,11,0.25)]"
+                  style={{
+                    left: "14%",
+                    top: "16%",
+                    width: "74%",
+                    height: "72%",
+                    opacity: ease(localFrame, [40, 65], [0, 1]),
+                  }}
+                >
+                  {/* Köşe Parantezleri */}
+                  <span className="absolute -left-1.5 -top-1.5 h-4 w-4 border-l-2 border-t-2 border-amber-400" />
+                  <span className="absolute -right-1.5 -top-1.5 h-4 w-4 border-r-2 border-t-2 border-amber-400" />
+                  <span className="absolute -left-1.5 -bottom-1.5 h-4 w-4 border-l-2 border-b-2 border-amber-400" />
+                  <span className="absolute -right-1.5 -bottom-1.5 h-4 w-4 border-r-2 border-b-2 border-amber-400" />
+
+                  {/* Rozetler */}
+                  <div className="absolute -top-7 left-2 flex items-center gap-2 rounded bg-amber-400 px-2.5 py-0.5 text-[10px] font-black text-slate-950 shadow-md">
+                    <span>1920 × 1080 · MANYETİK KİLİTLENME</span>
+                  </div>
+                  <div className="absolute -bottom-6 right-2 rounded bg-black/80 px-2.5 py-0.5 text-[10px] font-bold text-amber-300 border border-amber-400/30">
+                    Auto-Window Snap: Matched
+                  </div>
+                </div>
+
+                {/* Deklanşör Flaş Efekti (Frame 130-155) */}
+                {localFrame >= 130 && localFrame <= 155 && (
+                  <div
+                    className="absolute inset-0 z-40 bg-white pointer-events-none"
+                    style={{
+                      opacity: interpolate(localFrame, [130, 138, 155], [0, 0.75, 0]),
+                    }}
+                  />
+                )}
+              </>
+            )}
+
+            {/* ======================================================== */}
+            {/* SAHNE 1 (6s - 12s): Vektörel Notlar ve Çizim Araçları     */}
+            {/* ======================================================== */}
+            {scene === 1 && (
+              <>
+                {/* Vektörel Çizim Kutusu */}
+                <div
+                  className="absolute pointer-events-none rounded-lg border-2 border-dashed border-amber-400/90 bg-amber-400/[0.04]"
+                  style={{
+                    left: "18%",
+                    top: "22%",
+                    width: "65%",
+                    height: "56%",
+                    opacity: ease(localFrame, [10, 35], [0, 1]),
+                  }}
+                >
+                  <span className="absolute -top-3.5 left-3 rounded bg-amber-400 px-2 py-0.2 text-[10px] font-black text-slate-950 uppercase">
+                    {locale === "tr" ? "Önemli Yapılandırma" : "Target Config"}
+                  </span>
+                </div>
+
+                {/* Animasyonlu Vektörel Ok */}
+                <div
+                  className="absolute pointer-events-none flex items-center gap-2 rounded-lg border border-amber-400/50 bg-[#0e1612]/95 px-3 py-1.5 shadow-2xl backdrop-blur-md"
+                  style={{
+                    right: "12%",
+                    top: "34%",
+                    opacity: ease(localFrame, [35, 60], [0, 1]),
+                    transform: `translateY(${ease(localFrame, [35, 60], [15, 0])}px)`,
+                  }}
+                >
+                  <span className="h-2 w-2 rounded-full bg-amber-400 animate-ping" />
+                  <span className="text-[11px] font-bold text-amber-300">
+                    {locale === "tr" ? "Canlı API Uç Noktası ↗" : "Live API Endpoint ↗"}
+                  </span>
+                </div>
+              </>
+            )}
+
+            {/* ======================================================== */}
+            {/* SAHNE 2 (12s - 18s): Kriptografik Pikselasyon & Blur     */}
+            {/* ======================================================== */}
+            {scene === 2 && (
+              <>
+                {/* Sansürlenen Alan Vurgusu */}
+                <div
+                  className="absolute pointer-events-none rounded-lg border-2 border-amber-400 bg-amber-400/10 backdrop-blur-md"
+                  style={{
+                    left: "22%",
+                    top: "40%",
+                    width: "56%",
+                    height: "14%",
+                    opacity: ease(localFrame, [10, 30], [0, 1]),
+                  }}
+                >
+                  <div className="absolute inset-0 flex items-center justify-center gap-2 text-[11px] font-black uppercase text-amber-300">
+                    <Lock className="h-3.5 w-3.5" />
+                    <span>{locale === "tr" ? "TERSİNE ÇEVRİLEMEZ SANSÜR · RUST RASTER" : "IRREVERSIBLE REDACTION · RUST ENGINE"}</span>
+                  </div>
+                </div>
+
+                {/* Güvenlik Onay Kartı */}
+                <div
+                  className="absolute bottom-6 left-6 flex items-center gap-3 rounded-xl border border-emerald-500/30 bg-emerald-950/40 p-3 text-xs text-emerald-300 backdrop-blur-md"
+                  style={{
+                    opacity: ease(localFrame, [45, 70], [0, 1]),
+                    transform: `translateY(${ease(localFrame, [45, 70], [10, 0])}px)`,
+                  }}
+                >
+                  <ShieldCheck className="h-5 w-5 text-emerald-400" />
+                  <div>
+                    <p className="font-bold text-white">0 KB Bulut Yüklemesi</p>
+                    <p className="text-[10px] text-emerald-400/80 font-sans">
+                      {locale === "tr" ? "Yerel diskte Windows DPAPI & Keychain ile şifreli" : "Encrypted on-device via DPAPI & Keychain"}
+                    </p>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* ======================================================== */}
+            {/* SAHNE 3 (18s - 24s): Çift Çıktı & Sürükle-Bırak Handoff   */}
+            {/* ======================================================== */}
+            {scene === 3 && (
+              <>
+                {/* Çift Çıktı Bildirimleri */}
+                <div
+                  className="absolute top-8 left-8 space-y-2 z-20"
+                  style={{
+                    opacity: ease(localFrame, [10, 30], [0, 1]),
+                    transform: `translateY(${ease(localFrame, [10, 30], [-10, 0])}px)`,
+                  }}
+                >
+                  <div className="flex items-center gap-2 rounded-xl border border-amber-400/40 bg-black/80 px-3.5 py-2 text-xs font-bold text-amber-300 shadow-xl backdrop-blur-md">
+                    <Check className="h-4 w-4 text-emerald-400" />
+                    <span>image/png panoya kopyalandı</span>
+                  </div>
+                  <div className="flex items-center gap-2 rounded-xl border border-white/15 bg-black/80 px-3.5 py-2 text-xs font-mono text-slate-300 shadow-xl backdrop-blur-md">
+                    <Check className="h-4 w-4 text-emerald-400" />
+                    <span>file:///C:/AtrisShot/shot-01.png hazır</span>
+                  </div>
+                </div>
+
+                {/* Sağ Altta Floating Corner Preview Stack (AtrisShot OverlayPage) */}
+                <div
+                  className="absolute bottom-4 right-4 w-72 rounded-2xl border border-amber-400/50 bg-[#0d1612]/95 p-4 shadow-2xl backdrop-blur-xl z-20"
+                  style={{
+                    opacity: ease(localFrame, [20, 45], [0, 1]),
+                    transform: `scale(${ease(localFrame, [20, 45], [0.92, 1])})`,
+                  }}
+                >
+                  <div className="flex items-center justify-between text-xs font-bold text-white">
+                    <span className="flex items-center gap-2 text-amber-400">
+                      <Crop className="h-4 w-4" />
+                      AtrisShot Overlay
+                    </span>
+                    <span className="font-mono text-[10px] text-slate-400">tauri-drag</span>
+                  </div>
+
+                  <div className="mt-2.5 rounded-lg border border-white/10 bg-black/50 p-2 text-[10px] font-mono text-slate-300 flex items-center justify-between">
+                    <span className="truncate">shot_2026_09_19.png</span>
+                    <span className="text-amber-400 font-bold">1.2 MB</span>
+                  </div>
+
+                  <div className="mt-3 pt-2.5 border-t border-white/10 flex items-center justify-between text-[11px]">
+                    <span className="text-slate-400">
+                      {locale === "tr" ? "Sürükle & Bırak:" : "Drag & Handoff:"}
+                    </span>
+                    <div className="flex items-center gap-1 font-bold text-amber-300">
+                      <MoveUpRight className="h-3.5 w-3.5" />
+                      <span>Slack · PR · Figma</span>
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Alt Zaman Çizgisi & Ses Bilgisi (Cinematic Bottom Bar) */}
+      <div className="absolute bottom-4 left-8 right-8 flex items-center justify-between text-[11px] font-bold text-slate-400">
+        <div className="flex items-center gap-3">
+          <span className="font-mono text-amber-400">
+            {Math.floor(frame / FPS)}s / {DURATION / FPS}s
+          </span>
+          <span className="text-slate-600">•</span>
+          <span>{copy.music}</span>
+        </div>
+
+        {/* Canlı İlerleme Çubuğu */}
+        <div className="w-80 h-1.5 overflow-hidden rounded-full bg-white/10">
+          <div
+            className="h-full rounded-full bg-gradient-to-r from-amber-500 to-amber-300 transition-all duration-75"
+            style={{ width: `${progress}%` }}
+          />
+        </div>
+
+        <div className="flex items-center gap-2">
+          <span>{title}</span>
         </div>
       </div>
     </AbsoluteFill>
   );
 }
 
-function DesktopWindow({ scene, frame, locale }: { scene: number; frame: number; locale: LandingLocale }) {
-  const t = landingCopy[locale];
-  const sidebar = [
-    [SquareDashedMousePointer, locale === "tr" ? "Yakalama" : "Capture"],
-    [History, locale === "tr" ? "Geçmiş" : "History"],
-    [Edit3, locale === "tr" ? "Editör" : "Editor"],
-    [Settings, locale === "tr" ? "Ayarlar" : "Settings"],
-  ] as const;
-  const active = scene === 2 ? 2 : scene === 3 ? 1 : 0;
-
-  return (
-    <div className="h-[510px] w-full overflow-hidden rounded-[26px] border border-white/12 bg-[#0d1b15] shadow-2xl shadow-black/60">
-      <div className="flex h-12 items-center justify-between border-b border-white/8 px-5">
-        <div className="flex gap-2">
-          <span className="h-3 w-3 rounded-full bg-[#ef6f7b]" />
-          <span className="h-3 w-3 rounded-full bg-[#e7b95a]" />
-          <span className="h-3 w-3 rounded-full bg-[#31d19a]" />
-        </div>
-        <span className="text-[13px] font-bold text-slate-400">AtrisShot</span>
-        <span className="rounded-full bg-orange-400/10 px-3 py-1 text-[11px] font-black text-orange-200">FREE</span>
-      </div>
-      <div className="grid h-[458px] grid-cols-[158px_1fr]">
-        <aside className="border-r border-white/8 bg-[#08120d] p-4">
-          <div className="space-y-2">
-            {sidebar.map(([Icon, label], index) => (
-              <div key={label} className={`flex items-center gap-3 rounded-xl px-3 py-3 text-[12px] font-bold ${active === index ? "bg-orange-400/14 text-orange-100" : "text-slate-500"}`}>
-                <Icon className="h-4 w-4" />
-                {label}
-              </div>
-            ))}
-          </div>
-        </aside>
-        <div className="p-6">
-          {scene <= 1 && <CapturePanel frame={frame} locale={locale} />}
-          {scene === 2 && <EditorPanel frame={frame} locale={locale} />}
-          {scene === 3 && <HistoryPanel locale={locale} />}
-          <div className="mt-5 grid grid-cols-3 gap-3">
-            {t.workflow.slice(0, 3).map(([title], index) => (
-              <div key={title} className={`rounded-xl border border-white/8 p-3 text-[11px] font-black ${index === scene || (scene === 3 && index === 2) ? "bg-orange-400/10 text-orange-100" : "bg-white/[0.025] text-slate-400"}`}>
-                {title}
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function CapturePanel({ frame, locale }: { frame: number; locale: LandingLocale }) {
-  const scan = ease(frame, [18, 110], [8, 84]);
-  return (
-    <div>
-      <div className="flex items-start justify-between">
-        <div>
-          <p className="text-[12px] font-black uppercase tracking-[0.14em] text-orange-300">{locale === "tr" ? "Ekran üzerinde seçim" : "On-screen selection"}</p>
-          <h3 className="mt-2 text-[27px] font-black">{locale === "tr" ? "Odaklı alan hazır" : "Focused area ready"}</h3>
-        </div>
-        <div className="grid h-12 w-12 place-items-center rounded-2xl bg-orange-400 text-slate-950">
-          <Crop className="h-6 w-6" />
-        </div>
-      </div>
-      <div className="relative mt-7 aspect-video overflow-hidden rounded-2xl border border-white/10 bg-[#06100b] p-5">
-        <div className="absolute inset-0 opacity-20" style={{ backgroundImage: "linear-gradient(to right, #fff 1px, transparent 1px), linear-gradient(to bottom, #fff 1px, transparent 1px)", backgroundSize: "34px 34px" }} />
-        <div className="relative h-full rounded-xl border-2 border-dashed border-orange-300/80 bg-orange-300/5">
-          <div className="absolute left-[15%] top-[22%] h-[48%] w-[58%] rounded-lg border-2 border-sky-300 bg-sky-300/8 shadow-[0_0_0_999px_rgba(0,0,0,0.34)]" />
-          <MousePointer2 className="absolute text-white" style={{ left: `${scan}%`, top: `${38 + Math.sin(frame / 8) * 6}%`, width: 24, height: 24 }} />
-          <div className="absolute bottom-4 left-4 rounded-full bg-black/55 px-4 py-2 text-[12px] font-bold text-slate-200">
-            {locale === "tr" ? "Tıkla veya alan çiz" : "Click or draw region"}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function EditorPanel({ frame, locale }: { frame: number; locale: LandingLocale }) {
-  const arrow = ease(frame, [28, 88], [0, 1]);
-  return (
-    <div>
-      <p className="text-[12px] font-black uppercase tracking-[0.14em] text-orange-300">{locale === "tr" ? "Düzenleme" : "Editing"}</p>
-      <h3 className="mt-2 text-[27px] font-black">{locale === "tr" ? "Not ekle, netleştir" : "Annotate and clarify"}</h3>
-      <div className="mt-6 grid grid-cols-[150px_1fr] gap-4">
-        <div className="space-y-3">
-          {[
-            [PenLine, locale === "tr" ? "Kalem" : "Pen"],
-            [Type, locale === "tr" ? "Metin" : "Text"],
-            [Clipboard, "Blur"],
-          ].map(([Icon, label], index) => (
-            <div key={String(label)} className={`flex items-center gap-3 rounded-xl border border-white/8 px-3 py-3 text-[12px] font-bold ${index === 1 ? "bg-orange-400/12 text-orange-100" : "text-slate-400"}`}>
-              <Icon className="h-4 w-4" />
-              {String(label)}
-            </div>
-          ))}
-        </div>
-        <div className="relative aspect-video rounded-2xl border border-white/10 bg-[#07110d] p-5">
-          <div className="h-full rounded-xl border border-white/10 bg-gradient-to-br from-slate-950 to-emerald-950/50" />
-          <div className="absolute left-[18%] top-[24%] h-[34%] w-[42%] rounded-lg border-4 border-orange-400" />
-          <div className="absolute right-[16%] top-[26%] h-1 rounded-full bg-sky-300" style={{ width: `${70 * arrow}px`, transform: "rotate(-24deg)", transformOrigin: "left center" }} />
-          <div className="absolute bottom-[23%] left-[24%] rounded-lg bg-orange-400 px-3 py-2 text-[12px] font-black text-slate-950">
-            {locale === "tr" ? "Önemli alan" : "Important area"}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function HistoryPanel({ locale }: { locale: LandingLocale }) {
-  return (
-    <div>
-      <p className="text-[12px] font-black uppercase tracking-[0.14em] text-orange-300">{locale === "tr" ? "Yerel geçmiş" : "Local history"}</p>
-      <h3 className="mt-2 text-[27px] font-black">{locale === "tr" ? "Son görseller elinin altında" : "Recent shots stay within reach"}</h3>
-      <div className="mt-6 grid grid-cols-2 gap-4">
-        {[0, 1].map((index) => (
-          <div key={index} className="rounded-2xl border border-white/8 bg-white/[0.025] p-4">
-            <div className="aspect-video rounded-xl border border-white/10 bg-[#050b08] p-3">
-              <div className="h-full rounded-lg border border-orange-300/40 bg-orange-300/5" />
-            </div>
-            <div className="mt-3 flex items-center justify-between">
-              <span className="text-[12px] font-black">{index === 0 ? "\\\\.\\DISPLAY1" : locale === "tr" ? "Bölge seçimi" : "Region capture"}</span>
-              <Check className="h-4 w-4 text-orange-300" />
-            </div>
-            <div className="mt-3 flex gap-2 text-slate-400">
-              <Copy className="h-4 w-4" />
-              <FolderOpen className="h-4 w-4" />
-              <Image className="h-4 w-4" />
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function CaptureOverlay({ scene, frame, locale }: { scene: number; frame: number; locale: LandingLocale }) {
-  const show = scene === 1 || scene === 3;
-  const scale = show ? 1 + Math.sin(frame / 10) * 0.025 : 0.96;
-  const opacity = show ? ease(frame, [0, 24], [0, 1]) : 0.72;
-
-  return (
-    <div
-      className="absolute -bottom-5 left-1/2 flex w-[340px] -translate-x-1/2 items-center gap-4 rounded-full border border-white/12 bg-[#07110d]/95 px-4 py-3 shadow-2xl backdrop-blur"
-      style={{ transform: `translateX(-50%) scale(${scale})`, opacity }}
-    >
-      <div className="grid h-10 w-10 place-items-center rounded-xl bg-orange-400 text-slate-950">
-        {show ? <Copy className="h-5 w-5" /> : <Crop className="h-5 w-5" />}
-      </div>
-      <div className="flex-1">
-        <p className="text-[12px] font-black">{show ? (locale === "tr" ? "Çıktı hazır" : "Output ready") : (locale === "tr" ? "Yakalama bekliyor" : "Capture waiting")}</p>
-        <p className="mt-0.5 text-[10px] text-slate-500">{show ? (locale === "tr" ? "Resim veya path" : "Image or path") : "Ctrl + Shift + S"}</p>
-      </div>
-      <div className="flex items-center gap-1.5">
-        {[0, 1, 2].map((item) => <span key={item} className="h-2 w-2 rounded-full bg-orange-300" />)}
-      </div>
-    </div>
-  );
-}
-
 export default function AtrisShotProductFilm({ locale }: { locale: LandingLocale }) {
-  const containerRef = React.useRef<HTMLDivElement | null>(null);
-  const playerRef = React.useRef<PlayerRef | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const playerRef = useRef<PlayerRef | null>(null);
 
-  React.useEffect(() => {
+  useEffect(() => {
     const container = containerRef.current;
     const player = playerRef.current;
     if (!container || !player) return;
+
     const observer = new IntersectionObserver(
       ([entry]) => {
-        if (entry?.isIntersecting && entry.intersectionRatio >= 0.35) {
-          player.mute();
+        if (entry?.isIntersecting && entry.intersectionRatio >= 0.25) {
           player.play();
         } else {
           player.pause();
         }
       },
-      { threshold: [0, 0.35, 0.8] },
+      { threshold: [0, 0.25, 0.8] },
     );
+
     observer.observe(container);
     return () => observer.disconnect();
   }, []);
 
   return (
-    <div ref={containerRef} className="mx-auto w-full max-w-6xl overflow-hidden rounded-2xl border border-border bg-card p-2 shadow-2xl shadow-primary/10">
+    <div
+      ref={containerRef}
+      className="mx-auto w-full max-w-6xl overflow-hidden rounded-2xl border border-border/80 bg-card p-1.5 shadow-2xl shadow-black/40"
+    >
       <Player
         ref={playerRef}
         component={ProductFilmComposition}
@@ -260,9 +494,14 @@ export default function AtrisShotProductFilm({ locale }: { locale: LandingLocale
         controls
         loop
         autoPlay
-        initiallyMuted
+        initiallyMuted={false}
         acknowledgeRemotionLicense
-        style={{ width: "100%", aspectRatio: "16 / 9", borderRadius: "14px", overflow: "hidden" }}
+        style={{
+          width: "100%",
+          aspectRatio: "16 / 9",
+          borderRadius: "14px",
+          overflow: "hidden",
+        }}
       />
     </div>
   );

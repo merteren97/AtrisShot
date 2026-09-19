@@ -226,7 +226,7 @@ fn capture_root(app: &AppHandle, save_folder: Option<&str>) -> Result<PathBuf, S
 }
 
 fn normalized_history_limit(limit: Option<usize>) -> usize {
-    limit.unwrap_or(100).clamp(10, 500)
+    limit.unwrap_or(100).clamp(10, 1000)
 }
 
 fn shortcut_value_from_settings_json(contents: &str, key: &str) -> Option<String> {
@@ -331,6 +331,25 @@ fn history_entry_file_paths(entry: &ShotHistoryEntry) -> Vec<PathBuf> {
             }
         }
     }
+    if let Ok(orig_path) = path_from_user_input(&entry.original_path) {
+        if let Some(parent) = orig_path.parent() {
+            let preview_dir = parent.join("_preview");
+            let stem = orig_path
+                .file_stem()
+                .and_then(|value| value.to_str())
+                .unwrap_or("atrisshot");
+            for candidate in [
+                preview_dir.join(format!("{stem}-thumb-{}.png", entry.id)),
+                parent.join(format!("{stem}-thumb-{}.png", entry.id)),
+                preview_dir.join(format!("{stem}-edited-{}-thumb-{}.png", entry.id, entry.id)),
+                parent.join(format!("{stem}-edited-{}-thumb-{}.png", entry.id, entry.id)),
+            ] {
+                if !paths.iter().any(|existing| existing == &candidate) {
+                    paths.push(candidate);
+                }
+            }
+        }
+    }
     paths
 }
 
@@ -339,6 +358,21 @@ fn remove_history_entry_files_checked(entry: &ShotHistoryEntry) -> Result<(), St
         remove_file_if_exists(&path)?;
     }
     Ok(())
+}
+
+fn prune_entries_to_limit(
+    entries: &mut Vec<ShotHistoryEntry>,
+    limit: usize,
+) -> Vec<ShotHistoryEntry> {
+    if entries.len() > limit {
+        let excess = entries.split_off(limit);
+        for entry in &excess {
+            let _ = remove_history_entry_files_checked(entry);
+        }
+        excess
+    } else {
+        Vec::new()
+    }
 }
 
 fn clear_history_entries(entries: &mut Vec<ShotHistoryEntry>) {
@@ -1172,7 +1206,7 @@ fn thumbnail_path_for(image_path: &Path, id: &str) -> PathBuf {
         .file_stem()
         .and_then(|value| value.to_str())
         .unwrap_or("atrisshot");
-    parent.join(format!("{stem}-thumb-{id}.png"))
+    parent.join("_preview").join(format!("{stem}-thumb-{id}.png"))
 }
 
 fn write_thumbnail(image_path: &Path, id: &str) -> Result<PathBuf, String> {
@@ -1344,8 +1378,12 @@ fn capture_shot(
         .lock()
         .map_err(|_| "Shot history state is unavailable.".to_string())?;
     entries.insert(0, entry.clone());
-    entries.truncate(normalized_history_limit(request.history_limit));
+    let limit = normalized_history_limit(request.history_limit);
+    let pruned = prune_entries_to_limit(&mut entries, limit);
     persist_history(&app, &entries)?;
+    for p in &pruned {
+        let _ = app.emit("shot-deleted", serde_json::json!({ "id": p.id }));
+    }
     let _ = app.emit(
         "shot-captured",
         ShotHistoryEvent {
@@ -1391,6 +1429,7 @@ fn delete_shot(
     }
     remove_history_entry(&mut entries, &id);
     persist_history(&app, &entries)?;
+    let _ = app.emit("shot-deleted", serde_json::json!({ "id": id }));
     Ok(entries.clone())
 }
 
@@ -1422,6 +1461,9 @@ fn delete_shots(
     if removed.len() != requested.len() {
         return Err("Shot history changed during deletion.".to_string());
     }
+    for id in &ids {
+        let _ = app.emit("shot-deleted", serde_json::json!({ "id": id }));
+    }
     Ok(remaining)
 }
 
@@ -1445,7 +1487,30 @@ fn clear_shot_history(
     persist_history(&app, &entries)?;
     let remaining = entries.clone();
     drop(entries);
+    let _ = app.emit("shot-history-cleared", ());
     Ok(remaining)
+}
+
+#[tauri::command]
+fn prune_shot_history(
+    app: AppHandle,
+    store: State<'_, ShotStore>,
+    limit: usize,
+) -> Result<Vec<ShotHistoryEntry>, String> {
+    let mut entries = store
+        .entries
+        .lock()
+        .map_err(|_| "Shot history state is unavailable.".to_string())?;
+    if entries.is_empty() {
+        *entries = load_history_from_disk(&app);
+    }
+    let norm_limit = normalized_history_limit(Some(limit));
+    let pruned = prune_entries_to_limit(&mut entries, norm_limit);
+    persist_history(&app, &entries)?;
+    for p in &pruned {
+        let _ = app.emit("shot-deleted", serde_json::json!({ "id": p.id }));
+    }
+    Ok(entries.clone())
 }
 
 #[tauri::command]
@@ -1487,7 +1552,16 @@ fn apply_annotations(
     let original_path = PathBuf::from(&entry.original_path);
     let edited_path = edited_path_for(&original_path, &entry.id);
     render_annotations(&original_path, &edited_path, &annotations)?;
+    let old_thumbnail = entry
+        .thumbnail_path
+        .as_deref()
+        .and_then(|p| path_from_user_input(p).ok());
     let thumbnail_path = write_thumbnail(&edited_path, &entry.id).ok();
+    if let Some(old_p) = old_thumbnail {
+        if thumbnail_path.as_ref().map(|p| p != &old_p).unwrap_or(true) {
+            let _ = remove_file_if_exists(&old_p);
+        }
+    }
     entry.annotations_count = annotations_count;
     entry.edit_revision = entry.edit_revision.saturating_add(1);
     entry.annotations = annotations;
@@ -1775,7 +1849,7 @@ const OVERLAY_CARD_GAP: u32 = 12;
 const OVERLAY_WINDOW_WIDTH: f64 = OVERLAY_CARD_WIDTH + OVERLAY_CONTENT_PADDING as f64;
 
 fn overlay_expanded_height(item_count: u32, max_height: u32) -> u32 {
-    let item_count = item_count.clamp(1, 5);
+    let item_count = item_count.max(1);
     let desired_height = OVERLAY_CONTENT_PADDING
         + (item_count * OVERLAY_CARD_HEIGHT)
         + (item_count.saturating_sub(1) * OVERLAY_CARD_GAP);
@@ -1847,20 +1921,18 @@ fn position_overlay_edge_window(
 }
 
 fn overlay_max_height(app: &AppHandle) -> u32 {
-    app.primary_monitor()
-        .ok()
-        .flatten()
-        .map(|monitor| monitor.size().height.saturating_sub(96).max(176))
-        .or_else(|| {
-            displays().ok().and_then(|items| {
-                items
-                    .iter()
-                    .find(|display| display.primary)
-                    .or_else(|| items.first())
-                    .map(|display| display.height.saturating_sub(96).max(176))
-            })
-        })
-        .unwrap_or(720)
+    let window = app.get_webview_window("overlay");
+    let monitor = window
+        .as_ref()
+        .and_then(|w| w.current_monitor().ok().flatten())
+        .or_else(|| app.primary_monitor().ok().flatten());
+    if let Some(monitor) = monitor {
+        let scale = monitor.scale_factor().max(0.1);
+        let logical_h = (monitor.size().height as f64 / scale).round() as u32;
+        logical_h.saturating_sub(96).max(180)
+    } else {
+        720
+    }
 }
 
 #[tauri::command]
@@ -1878,14 +1950,15 @@ fn set_overlay_presentation(
         return;
     }
 
+    let max_h = overlay_max_height(&app);
     let (width, height) = if state == "collapsed" {
-        (32.0, 64.0)
+        (6.0, f64::from(max_h.max(300)))
     } else {
         (
             OVERLAY_WINDOW_WIDTH,
             f64::from(overlay_expanded_height(
                 item_count,
-                overlay_max_height(&app),
+                max_h,
             )),
         )
     };
@@ -2309,6 +2382,7 @@ pub fn run() {
             hide_editor_window,
             set_tray_locale,
             restart_application,
+            prune_shot_history,
         ])
         .on_window_event(|window, event| {
             if matches!(window.label(), "main" | "editor") {
@@ -2339,7 +2413,8 @@ mod tests {
         assert_eq!(normalized_history_limit(None), 100);
         assert_eq!(normalized_history_limit(Some(1)), 10);
         assert_eq!(normalized_history_limit(Some(120)), 120);
-        assert_eq!(normalized_history_limit(Some(900)), 500);
+        assert_eq!(normalized_history_limit(Some(900)), 900);
+        assert_eq!(normalized_history_limit(Some(1500)), 1000);
     }
 
     #[test]
@@ -2550,6 +2625,41 @@ mod tests {
     }
 
     #[test]
+    fn prune_entries_removes_excess_files_including_preview() {
+        let id = now_id();
+        let root = std::env::temp_dir().join(format!("atrisshot-prune-test-{id}"));
+        let preview_dir = root.join("_preview");
+        fs::create_dir_all(&preview_dir).expect("create preview dir");
+
+        let mut entries = Vec::new();
+        for i in 0..5 {
+            let orig = root.join(format!("atrisshot-item-{i}.png"));
+            let thumb = preview_dir.join(format!("atrisshot-item-{i}-thumb-item-{i}.png"));
+            fs::write(&orig, b"orig").expect("write orig");
+            fs::write(&thumb, b"thumb").expect("write thumb");
+            let mut e = sample_history_entry(&format!("item-{i}"));
+            e.original_path = orig.to_string_lossy().to_string();
+            e.thumbnail_path = Some(thumb.to_string_lossy().to_string());
+            entries.push(e);
+        }
+
+        let pruned = prune_entries_to_limit(&mut entries, 3);
+        assert_eq!(entries.len(), 3);
+        assert_eq!(pruned.len(), 2);
+
+        for i in 0..3 {
+            assert!(root.join(format!("atrisshot-item-{i}.png")).exists());
+            assert!(preview_dir.join(format!("atrisshot-item-{i}-thumb-item-{i}.png")).exists());
+        }
+        for i in 3..5 {
+            assert!(!root.join(format!("atrisshot-item-{i}.png")).exists());
+            assert!(!preview_dir.join(format!("atrisshot-item-{i}-thumb-item-{i}.png")).exists());
+        }
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn existing_path_rejects_empty_or_missing_paths() {
         assert!(existing_path_from_user_input("").is_err());
         assert!(existing_path_from_user_input("definitely-missing-shot.png").is_err());
@@ -2656,6 +2766,7 @@ mod tests {
         assert_eq!(overlay_expanded_height(1, 1_000), 191);
         assert_eq!(overlay_expanded_height(2, 1_000), 378);
         assert_eq!(overlay_expanded_height(5, 1_000), 939);
+        assert_eq!(overlay_expanded_height(6, 2_000), 1126);
         assert_eq!(overlay_expanded_height(5, 500), 500);
     }
 
@@ -2853,7 +2964,8 @@ mod tests {
         image.save(&original).expect("write original");
         let thumbnail = write_thumbnail(&original, &id).expect("write thumbnail");
         assert!(thumbnail.exists());
-        assert!(fs::metadata(thumbnail).expect("thumbnail metadata").len() > 0);
+        assert_eq!(thumbnail.parent().unwrap().file_name().unwrap(), "_preview");
+        assert!(fs::metadata(&thumbnail).expect("thumbnail metadata").len() > 0);
         let _ = fs::remove_dir_all(root);
     }
 

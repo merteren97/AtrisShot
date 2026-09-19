@@ -82,6 +82,17 @@ export function getShotImageDataUrl(
   return promise;
 }
 
+export function invalidateShotCache(path?: string | null) {
+  if (!path) return;
+  for (const key of Array.from(cache.keys())) {
+    if (key.startsWith(path)) {
+      const val = cache.get(key);
+      if (val) cachedChars -= val.length;
+      cache.delete(key);
+    }
+  }
+}
+
 export function clearShotImageCache() {
   cache.clear();
   cachedChars = 0;

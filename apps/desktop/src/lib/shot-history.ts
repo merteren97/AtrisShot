@@ -23,8 +23,16 @@ export async function loadShotHistory(): Promise<ShotHistoryEntry[]> {
 }
 
 export async function addPreviewShot(entry: ShotHistoryEntry, historyLimit = 100): Promise<ShotHistoryEntry[]> {
-  const limit = Math.max(10, Math.min(500, historyLimit));
+  const limit = Math.max(10, Math.min(1000, historyLimit));
   const next = [entry, ...readPreviewHistory()].slice(0, limit);
+  writePreviewHistory(next);
+  return next;
+}
+
+export async function pruneShotHistoryEntries(historyLimit: number): Promise<ShotHistoryEntry[]> {
+  const limit = Math.max(10, Math.min(1000, historyLimit));
+  if (isNativeRuntime()) return nativeRuntime.pruneShotHistory(limit);
+  const next = readPreviewHistory().slice(0, limit);
   writePreviewHistory(next);
   return next;
 }

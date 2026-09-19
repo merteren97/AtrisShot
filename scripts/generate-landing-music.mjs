@@ -9,71 +9,107 @@ const outPath = path.resolve("apps/landing/public/media/atrisshot-product-theme.
 
 const clamp = (value) => Math.max(-1, Math.min(1, value));
 const note = (midi) => 440 * 2 ** ((midi - 69) / 12);
-const envelope = (t, start, length, attack = 0.05, release = 0.38) => {
+
+// Smooth envelope with configurable attack, decay, sustain level, and release
+const envelope = (t, start, duration, attack = 0.4, release = 1.2) => {
   const local = t - start;
-  if (local < 0 || local > length) return 0;
-  if (local < attack) return local / attack;
-  if (local > length - release) return Math.max(0, (length - local) / release);
+  if (local < 0 || local > duration) return 0;
+  if (local < attack) return Math.sin((local / attack) * (Math.PI / 2));
+  if (local > duration - release) {
+    const relProgress = (duration - local) / release;
+    return Math.max(0, Math.sin(relProgress * (Math.PI / 2)));
+  }
   return 1;
 };
-const sine = (frequency, t) => Math.sin(2 * Math.PI * frequency * t);
-const triangle = (frequency, t) => (2 / Math.PI) * Math.asin(Math.sin(2 * Math.PI * frequency * t));
 
+// Slow, lush ambient chords (MIDI notes)
+// Progression: Dmaj9 -> Bm9 -> Gmaj9 -> A(add9) (6 seconds per chord = 24s total)
 const chords = [
-  [52, 59, 64, 68],
-  [48, 55, 60, 67],
-  [50, 57, 62, 66],
-  [45, 52, 59, 64],
+  // Dmaj9: D3, A3, C#4, E4, F#4
+  { bass: 38, pad: [50, 57, 61, 64, 66], chime: [66, 69, 73, 76] },
+  // Bm9: B2, F#3, A3, C#4, D4
+  { bass: 35, pad: [47, 54, 57, 61, 62], chime: [62, 66, 71, 73] },
+  // Gmaj9: G2, D3, F#3, A3, B3
+  { bass: 31, pad: [43, 50, 54, 57, 59], chime: [59, 62, 66, 71] },
+  // A(add9): A2, E3, G#3, B3, C#4
+  { bass: 33, pad: [45, 52, 56, 59, 61], chime: [61, 64, 68, 73] },
 ];
-const melody = [76, 78, 80, 83, 81, 80, 78, 76, 74, 76, 78, 81, 80, 78, 76, 73];
+
 const pcm = Buffer.alloc(totalSamples * channels * 2);
 
 for (let i = 0; i < totalSamples; i += 1) {
   const t = i / sampleRate;
-  const beat = t * 1.72;
-  const bar = Math.floor(beat / 4);
-  const barTime = (beat % 4) / 1.72;
-  const chord = chords[bar % chords.length];
+  const chordIndex = Math.min(chords.length - 1, Math.floor(t / 6));
+  const chordStart = chordIndex * 6;
+  const chord = chords[chordIndex];
 
-  let sample = 0;
+  let sampleL = 0;
+  let sampleR = 0;
 
-  for (const midi of chord) {
+  // 1. Warm Analog Pad (Detuned sine + triangle with slow stereo chorus)
+  const padEnv = envelope(t, chordStart, 6.2, 0.8, 1.4);
+  for (let idx = 0; idx < chord.pad.length; idx++) {
+    const midi = chord.pad[idx];
     const freq = note(midi);
-    const env = envelope(t, bar * (4 / 1.72), 4 / 1.72, 0.1, 0.55);
-    sample += sine(freq, t) * env * 0.055;
-    sample += triangle(freq * 2, t) * env * 0.018;
+    const detune1 = freq * (1 + 0.0018 * Math.sin(t * 0.4 + idx));
+    const detune2 = freq * (1 - 0.0018 * Math.cos(t * 0.35 + idx));
+
+    const s1 = Math.sin(2 * Math.PI * detune1 * t);
+    const s2 = (2 / Math.PI) * Math.asin(Math.sin(2 * Math.PI * detune2 * t));
+    const amp = (0.045 / (idx * 0.35 + 1)) * padEnv;
+
+    sampleL += (s1 * 0.7 + s2 * 0.3) * amp;
+    sampleR += (s2 * 0.7 + s1 * 0.3) * amp;
   }
 
-  const step = Math.floor(beat * 2) % melody.length;
-  const stepStart = Math.floor(beat * 2) / 2 / 1.72;
-  const pluckEnv = envelope(t, stepStart, 0.42, 0.012, 0.32);
-  sample += sine(note(melody[step]), t) * pluckEnv * 0.085;
-  sample += sine(note(melody[step] + 12), t) * pluckEnv * 0.025;
+  // 2. Soft Deep Sub-Bass (Pure low warmth, 40-70Hz)
+  const bassFreq = note(chord.bass);
+  const bassEnv = envelope(t, chordStart, 5.8, 0.4, 0.8);
+  const subBass = Math.sin(2 * Math.PI * bassFreq * t) * 0.14 * bassEnv;
+  const subHarmonic = Math.sin(2 * Math.PI * bassFreq * 2 * t) * 0.03 * bassEnv;
+  sampleL += subBass + subHarmonic;
+  sampleR += subBass + subHarmonic;
 
-  const bassMidi = chord[0] - 12;
-  sample += sine(note(bassMidi), t) * envelope(t, Math.floor(beat) / 1.72, 0.48, 0.01, 0.28) * 0.12;
+  // 3. Gentle Rhodes / Chime Sparkles (Slow, peaceful arpeggio notes)
+  // Plays a gentle chime note every 1.5 seconds
+  const chimeInterval = 1.5;
+  const chimeIndex = Math.floor((t % 6) / chimeInterval);
+  const chimeStart = chordStart + chimeIndex * chimeInterval;
+  const chimeMidi = chord.chime[chimeIndex % chord.chime.length];
+  const chimeFreq = note(chimeMidi);
+  const chimeAge = t - chimeStart;
 
-  const kickPhase = beat % 1;
-  if (kickPhase < 0.18) {
-    sample += sine(54 - kickPhase * 140, t) * (1 - kickPhase / 0.18) * 0.12;
+  if (chimeAge >= 0 && chimeAge < 2.0) {
+    // Quick soft attack, exponential long decay
+    const chimeAmp = Math.exp(-chimeAge * 3.2) * 0.07;
+    const chimeTone =
+      Math.sin(2 * Math.PI * chimeFreq * t) * 0.8 +
+      Math.sin(2 * Math.PI * chimeFreq * 2 * t) * 0.2;
+
+    const pan = 0.5 + 0.35 * Math.sin(chimeIndex * 1.8);
+    sampleL += chimeTone * chimeAmp * (1 - pan);
+    sampleR += chimeTone * chimeAmp * pan;
   }
 
-  const hatPhase = (beat * 2) % 1;
-  if (hatPhase < 0.08) {
-    const noise = Math.sin(i * 92.31) * Math.sin(i * 12.73);
-    sample += noise * (1 - hatPhase / 0.08) * 0.028;
-  }
+  // 4. Subtle Ambient Tape Warmth (Organic texture)
+  const noise = (Math.sin(i * 12.314) * Math.sin(i * 7.189)) * 0.003;
+  sampleL += noise;
+  sampleR += noise;
 
-  const intro = Math.min(1, t / 1.4);
-  const outro = Math.min(1, (seconds - t) / 1.8);
-  const value = clamp(sample * intro * outro * 0.88);
-  const left = Math.round(clamp(value * 0.96) * 32767);
-  const right = Math.round(clamp(value * (0.92 + Math.sin(t * 0.7) * 0.05)) * 32767);
+  // Master Envelope: 1.5s gentle fade-in, 2.5s graceful fade-out
+  const masterFadeIn = Math.min(1, t / 1.5);
+  const masterFadeOut = Math.min(1, Math.max(0, (seconds - t) / 2.5));
+  const masterGain = masterFadeIn * masterFadeOut * 0.92;
+
+  const outL = Math.round(clamp(sampleL * masterGain) * 32767);
+  const outR = Math.round(clamp(sampleR * masterGain) * 32767);
+
   const offset = i * channels * 2;
-  pcm.writeInt16LE(left, offset);
-  pcm.writeInt16LE(right, offset + 2);
+  pcm.writeInt16LE(outL, offset);
+  pcm.writeInt16LE(outR, offset + 2);
 }
 
+// Write Standard 44.1kHz 16-bit Stereo WAV
 const dataSize = pcm.length;
 const wav = Buffer.alloc(44 + dataSize);
 wav.write("RIFF", 0);
@@ -81,16 +117,16 @@ wav.writeUInt32LE(36 + dataSize, 4);
 wav.write("WAVE", 8);
 wav.write("fmt ", 12);
 wav.writeUInt32LE(16, 16);
-wav.writeUInt16LE(1, 20);
-wav.writeUInt16LE(channels, 22);
+wav.writeUInt16LE(1, 20); // PCM
+wav.writeUInt16LE(channels, 22); // 2 channels
 wav.writeUInt32LE(sampleRate, 24);
 wav.writeUInt32LE(sampleRate * channels * 2, 28);
 wav.writeUInt16LE(channels * 2, 32);
-wav.writeUInt16LE(16, 34);
+wav.writeUInt16LE(16, 34); // 16-bit
 wav.write("data", 36);
 wav.writeUInt32LE(dataSize, 40);
 pcm.copy(wav, 44);
 
 await mkdir(path.dirname(outPath), { recursive: true });
 await writeFile(outPath, wav);
-console.log(`Generated ${outPath}`);
+console.log(`Generated high-end slow ambient theme: ${outPath} (${(wav.length / 1024 / 1024).toFixed(2)} MB)`);
