@@ -318,7 +318,10 @@ const request = async <T>(path: string, init: RequestInit = {}): Promise<T> => {
       const message = isRecord(data) && typeof data.error === "string"
         ? data.error
         : `AtrisHub request failed (${response.status}).`;
-      if (response.status === 401 || response.status === 403) {
+      // A product policy call can fail after Hub has already rotated the refresh token.
+      // Only the refresh endpoint can reject the saved refresh credential.
+      if (path === REFRESH_PATH && (response.status === 401 || response.status === 403)
+        && isRecord(data) && typeof data.error === "string") {
         throw new CredentialRejectedError(response.status, message);
       }
       throw new RequestError(response.status, message);
